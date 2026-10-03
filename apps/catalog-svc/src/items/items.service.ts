@@ -70,7 +70,7 @@ export class ItemsService implements OnModuleInit {
   async update(owner: string, id: string, dto: UpdateItemDto): Promise<ItemView> {
     const item = await this.owned(owner, id);
     if (dto.imageUrl !== undefined) this.assertHostedImage(dto.imageUrl);
-    if (dto.supply !== undefined && dto.supply !== item.supply && item.sold > 0) {
+    if (dto.supply !== undefined && dto.supply !== item.supply && (item.sold > 0 || item.editionLocked)) {
       throw new AppError("SUPPLY_LOCKED", 409, "Edition size is fixed on-chain after the first sale");
     }
     const metadataChanged = ["name", "description", "imageUrl"].some(

@@ -45,7 +45,7 @@ export class CatalogEventsHandler {
 
   /** The chain fixed the edition size at the first sale; mirror it. */
   private async onEditionLocked(event: EditionLockedEvent, session: ClientSession): Promise<void> {
-    await this.items.updateOne({ tokenId: event.data.tokenId }, { $set: { supply: Number(event.data.maxSupply) } }, { session });
+    await this.items.updateOne({ tokenId: event.data.tokenId }, { $set: { supply: Number(event.data.maxSupply), editionLocked: true } }, { session });
   }
 
   private async onTransfer(event: TransferSingleEvent, session: ClientSession): Promise<void> {

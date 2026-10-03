@@ -54,6 +54,26 @@ describe("CatalogEventsHandler", () => {
   it("mirrors the on-chain edition size from EditionLocked", async () => {
     await handler.handle(envelope("chain.EditionLocked", { tokenId, creator: OWNER, maxSupply: "4" }));
     expect((await items.findById(itemId))?.supply).toBe(4);
+    expect((await items.findById(itemId))?.editionLocked).toBe(true);
+  });
+
+  it("refuses supply edits once the chain locked the edition, even while sold is still 0", async () => {
+    // catalog-q is a standard queue: EditionLocked can arrive before the mint's TransferSingle moves `sold`.
+    const auth = bearer(app, OWNER);
+    const http = () => request(app.getHttpServer());
+    const created = await http()
+      .post("/catalog/items")
+      .set("authorization", auth)
+      .send({ name: "Race Card", imageUrl: "http://media.test/media/b.png", supply: 5, priceWei: "100" })
+      .expect(201);
+    expect((await items.findById(created.body.id))?.editionLocked).toBe(false);
+
+    await handler.handle(envelope("chain.EditionLocked", { tokenId: created.body.tokenId, creator: OWNER, maxSupply: "5" }));
+    expect((await items.findById(created.body.id))?.sold).toBe(0);
+
+    const locked = await http().patch(`/catalog/items/${created.body.id}`).set("authorization", auth).send({ supply: 2 }).expect(409);
+    expect(locked.body.error.code).toBe("SUPPLY_LOCKED");
+    await http().patch(`/catalog/items/${created.body.id}`).set("authorization", auth).send({ priceWei: "7" }).expect(200);
   });
 
   it("counts mints as sold and credits the buyer, exactly once per event", async () => {

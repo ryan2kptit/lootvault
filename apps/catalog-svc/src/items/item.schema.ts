@@ -29,6 +29,10 @@ export class Item {
   @Prop({ required: true, min: 1 })
   supply: number;
 
+  /** Set by EditionLocked: the chain fixed the edition size. Keyed on the event, not on `sold`, because the two events can arrive in either order. */
+  @Prop({ default: false })
+  editionLocked: boolean;
+
   /** Projection of minted copies, updated from TransferSingle mint events. */
   @Prop({ default: 0, min: 0 })
   sold: number;
