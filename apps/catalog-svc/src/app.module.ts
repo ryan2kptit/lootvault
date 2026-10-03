@@ -7,9 +7,12 @@ import {
   awsClientConfig,
   CommonAuthModule,
   createLoggerModule,
+  InboxModule,
 } from "@lootvault/nest-common";
 
 import { type CatalogConfig, catalogConfigSchema } from "./config";
+import { CatalogConsumer } from "./events/catalog-consumer";
+import { CatalogEventsHandler } from "./events/catalog-events.handler";
 import { HealthController } from "./health.controller";
 import { HoldingsController } from "./holdings/holdings.controller";
 import { Holding, HoldingSchema } from "./holdings/holding.schema";
@@ -38,6 +41,7 @@ import { StoresService } from "./stores/stores.service";
       { name: Item.name, schema: ItemSchema },
       { name: Holding.name, schema: HoldingSchema },
     ]),
+    InboxModule,
   ],
   controllers: [
     HealthController,
@@ -51,6 +55,8 @@ import { StoresService } from "./stores/stores.service";
   providers: [
     StoresService,
     ItemsService,
+    CatalogEventsHandler,
+    CatalogConsumer,
     {
       provide: MEDIA_STORAGE,
       inject: [APP_CONFIG],
