@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { tokenFor } from "./session-token";
+import { msUntilExpiry, tokenFor } from "./session-token";
 
 const address = "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc";
 const now = Date.parse("2026-10-03T12:00:00Z");
@@ -23,5 +23,22 @@ describe("tokenFor", () => {
   it("returns nothing for an expired session or no session", () => {
     expect(tokenFor({ ...session, expiresAt: "2026-10-03T11:59:59Z" }, address, now)).toBeUndefined();
     expect(tokenFor(null, address, now)).toBeUndefined();
+  });
+});
+
+describe("msUntilExpiry", () => {
+  it("returns the milliseconds left for a future expiry", () => {
+    expect(msUntilExpiry(session, now)).toBe(60 * 60 * 1000);
+  });
+
+  it("returns 0 for an expired, invalid or missing session", () => {
+    expect(msUntilExpiry({ ...session, expiresAt: "2026-10-03T11:00:00Z" }, now)).toBe(0);
+    expect(msUntilExpiry({ ...session, expiresAt: "2026-10-03T12:00:00Z" }, now)).toBe(0);
+    expect(msUntilExpiry({ ...session, expiresAt: "not a date" }, now)).toBe(0);
+    expect(msUntilExpiry(null, now)).toBe(0);
+  });
+
+  it("clamps to the largest delay setTimeout accepts", () => {
+    expect(msUntilExpiry({ ...session, expiresAt: "2027-10-03T12:00:00Z" }, now)).toBe(2 ** 31 - 1);
   });
 });

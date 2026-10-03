@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { type Config, useConfig, useConnection } from "wagmi";
 import { getConnection } from "wagmi/actions";
 import { useStore } from "zustand";
@@ -10,7 +10,7 @@ import { createStore } from "zustand/vanilla";
 
 import { type Api, createApi, type Session } from "../api";
 import { publicEnv } from "../env";
-import { isLive, tokenFor } from "./session-token";
+import { isLive, msUntilExpiry, tokenFor } from "./session-token";
 
 export type AppName = "studio" | "storefront";
 
@@ -69,20 +69,33 @@ export function SessionProvider({ app, children }: { app: AppName; children: Rea
     void value.store.persist.rehydrate();
   }, [value.store]);
 
-  // A session and the data fetched with it belong to one wallet: drop both when the wallet disconnects or switches account.
+  // A session belongs to one wallet: drop it when the wallet disconnects or switches account.
   const previousAddress = useRef(address);
   useEffect(() => {
-    if (previousAddress.current !== undefined && previousAddress.current !== address) {
-      value.store.getState().clearSession();
-      queryClient.removeQueries();
-    }
+    if (previousAddress.current !== undefined && previousAddress.current !== address) value.store.getState().clearSession();
     previousAddress.current = address;
-  }, [address, queryClient, value.store]);
+  }, [address, value.store]);
 
   const session = useStore(value.store, (state) => state.session);
   useEffect(() => {
     if (status === "connected" && session && session.address !== address.toLowerCase()) value.store.getState().clearSession();
   }, [status, address, session, value.store]);
+
+  // A session ends at its expiry (at once when it expired while the tab was closed), whether or not a request notices.
+  useEffect(() => {
+    if (!session) return;
+    const timer = setTimeout(() => value.store.getState().clearSession(), msUntilExpiry(session));
+    return () => clearTimeout(timer);
+  }, [session, value.store]);
+
+  // The data fetched with a session is private to it: whenever a session ends (expiry, 401, sign-out, account switch),
+  // reset every query. Resetting after the commit finds the signed-in screens already unmounted, so nothing private is
+  // refetched anonymously, while observers that stay mounted (public pages) drop the old account's data and reload.
+  const hadSession = useRef(false);
+  useEffect(() => {
+    if (hadSession.current && !session) void queryClient.resetQueries();
+    hadSession.current = session !== null;
+  }, [session, queryClient]);
 
   return <SessionContext value={value}>{children}</SessionContext>;
 }
@@ -114,12 +127,7 @@ export function useSession() {
   const session = useStore(store, (state) => state.session);
   const connection = useConnection();
   const hydrated = useHydrated();
-  const queryClient = useQueryClient();
-  const clearSession = useStore(store, (state) => state.clearSession);
-  const signOut = useCallback(() => {
-    clearSession();
-    queryClient.removeQueries();
-  }, [clearSession, queryClient]);
+  const signOut = useStore(store, (state) => state.clearSession);
   const address = hydrated ? connection.address : undefined;
   const status = hydrated ? connection.status : "disconnected";
   const signedIn = status === "connected" && address !== undefined && isLive(session) && session.address === address.toLowerCase();
