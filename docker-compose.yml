@@ -35,6 +35,8 @@ services:
     image: lootvault-anvil:1.5.1
     # --state persists the whole chain (contracts, balances, blocks) across restarts.
     command: ["--host", "0.0.0.0", "--chain-id", "31337", "--state", "/data/anvil-state.json", "--state-interval", "5"]
+    # Stop via anvil's Ctrl-C path, which writes --state on exit (explicit, not left to Docker's default).
+    stop_signal: SIGINT
     ports: ["127.0.0.1:8545:8545"]
     volumes: ["chain-data:/data"]
     healthcheck:
