@@ -12,13 +12,13 @@ import { toast } from "sonner";
 import { PurchaseProgress } from "@/components/purchase-progress";
 import { QuantityPicker } from "@/components/quantity-picker";
 import { SignInToBuy } from "@/components/sign-in-to-buy";
-import { PriceChangedError, usePurchase } from "@/hooks/use-purchase";
+import { isPurchaseLocked, PriceChangedError, usePurchase } from "@/hooks/use-purchase";
 
 export default function CartPage({ params }: PageProps<"/s/[slug]/cart">) {
   const { slug } = use(params);
   const api = useApi();
   const { session } = useSession();
-  const { lines, add, setQuantity, capQuantity, remove, clear } = useCart(slug, (cart) => cart);
+  const { lines, add, setQuantity, capQuantity, remove } = useCart(slug, (cart) => cart);
 
   /** Brings the cart back in line with the stock and prices after the checkout or the contract refused it. */
   async function syncCart(error: unknown) {
@@ -51,20 +51,13 @@ export default function CartPage({ params }: PageProps<"/s/[slug]/cart">) {
   }
 
   const { state, purchase } = usePurchase({
-    // The cart is emptied as soon as the payment is mined, so it can never be paid for a second time.
-    onReceipt: clear,
+    // The hook takes the purchased lines out of the cart once the transaction is sent, so they can never be paid twice.
+    cart: { add },
     onPaid: () => toast.success("Payment confirmed. Your NFTs are in your collection."),
     onPending: () => toast.info("Payment sent. Your NFTs appear once it is confirmed."),
     onError: (error) => void syncCart(error),
   });
-  const busy = state.status === "running" || state.status === "submitted";
-
-  function checkout() {
-    return purchase(
-      lines.map(({ itemId, quantity }) => ({ itemId, quantity })),
-      cartTotalWei(lines),
-    );
-  }
+  const busy = isPurchaseLocked(state);
 
   if (lines.length === 0) {
     return (
@@ -107,7 +100,7 @@ export default function CartPage({ params }: PageProps<"/s/[slug]/cart">) {
           </div>
           <p className="text-xs text-muted-foreground">One transaction pays for every item. Prices and stock are checked again at checkout.</p>
           {session ? (
-            <Button size="lg" onClick={() => void checkout()} disabled={busy}>
+            <Button size="lg" onClick={() => void purchase(lines)} disabled={busy}>
               {busy ? "Processing…" : "Checkout"}
             </Button>
           ) : (

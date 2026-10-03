@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { usePurchase } from "@/hooks/use-purchase";
+import { isPurchaseLocked, usePurchase } from "@/hooks/use-purchase";
 
 import { PurchaseProgress } from "./purchase-progress";
 import { QuantityPicker } from "./quantity-picker";
@@ -40,7 +40,7 @@ export function PurchasePanel({ item, slug }: { item: PublicItem; slug: string }
     },
   });
   // A payment that was sent but not confirmed yet must never be paid again.
-  const busy = state.status === "running" || state.status === "submitted";
+  const busy = isPurchaseLocked(state);
 
   if (item.remaining <= 0) return <p className="font-medium text-destructive">Sold out</p>;
 
@@ -59,7 +59,7 @@ export function PurchasePanel({ item, slug }: { item: PublicItem; slug: string }
   }
 
   function buyNow() {
-    return purchase([{ itemId: item.id, quantity }], BigInt(item.priceWei) * BigInt(quantity));
+    return purchase([{ itemId: item.id, name: item.name, imageUrl: item.imageUrl, priceWei: item.priceWei, quantity }]);
   }
 
   return (
