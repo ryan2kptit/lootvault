@@ -12,9 +12,11 @@ import { CreateTopicCommand, ListSubscriptionsByTopicCommand, SNSClient, Subscri
 import { CreateQueueCommand, GetQueueAttributesCommand, SetQueueAttributesCommand, SQSClient } from "@aws-sdk/client-sqs";
 
 import { upsertEnv } from "./lib/env-file.mjs";
+import { assertLocalAwsEndpoint } from "./lib/local-guard.mjs";
 import { loadRootEnv, ROOT_ENV_URL } from "./lib/root-env.mjs";
 
 const env = loadRootEnv();
+assertLocalAwsEndpoint(env.AWS_ENDPOINT_URL); // creates buckets/topics/queues: never against real AWS
 const aws = { region: env.AWS_REGION ?? "ap-southeast-1", endpoint: env.AWS_ENDPOINT_URL };
 const s3 = new S3Client({ ...aws, forcePathStyle: true });
 const sns = new SNSClient(aws);

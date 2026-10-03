@@ -7,7 +7,10 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 import { ACCOUNTS } from "./lib/accounts.mjs";
 import { api, ensureStore, env, login, payCheckout, publicClient, uploadPng, URLS, waitFor } from "./lib/api.mjs";
+import { assertLocalRpc } from "./lib/local-guard.mjs";
 import { renderCardPng } from "./lib/png.mjs";
+
+await assertLocalRpc(env.RPC_URL); // public anvil keys: local chain only
 
 const BUYERS = 20;
 const SUPPLY = 5;

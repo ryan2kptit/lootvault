@@ -3,10 +3,14 @@
 // `--force` redeploys (a new contract: existing orders/items stay in Mongo but point at the old one).
 import { spawnSync } from "node:child_process";
 
+import { assertLocalRpc } from "./lib/local-guard.mjs";
 import { loadRootEnv } from "./lib/root-env.mjs";
 
 const env = loadRootEnv();
 const force = process.argv.includes("--force");
+
+// Local chain only, even with --force: a mis-pointed RPC_URL must never receive a deployment.
+await assertLocalRpc(env.RPC_URL);
 
 async function codeAt(address) {
   const response = await fetch(env.RPC_URL ?? "http://127.0.0.1:8545", {

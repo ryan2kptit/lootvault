@@ -2,8 +2,11 @@
 // Seeds two stores with six published NFTs each, through the public APIs (services must be running).
 // Skips when stores already exist unless --force.
 import { ACCOUNTS } from "./lib/accounts.mjs";
-import { api, ensureStore, login, uploadPng, URLS } from "./lib/api.mjs";
+import { api, ensureStore, env, login, uploadPng, URLS } from "./lib/api.mjs";
+import { assertLocalRpc } from "./lib/local-guard.mjs";
 import { renderCardPng } from "./lib/png.mjs";
+
+await assertLocalRpc(env.RPC_URL); // public anvil keys: local chain only
 
 const MILLI = 10n ** 15n; // 0.001 ETH in wei
 
