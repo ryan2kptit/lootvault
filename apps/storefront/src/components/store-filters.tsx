@@ -3,7 +3,7 @@ import { Search } from "lucide-react";
 import Form from "next/form";
 import Link from "next/link";
 
-import type { StoreFilters as Filters } from "@/lib/store-filters";
+import { MAX_QUERY_LENGTH, type StoreFilters as Filters } from "@/lib/store-filters";
 
 const SORT_LABELS = { newest: "Newest", price_asc: "Price: low to high", price_desc: "Price: high to low" } as const;
 
@@ -14,7 +14,7 @@ export function StoreFilters({ slug, filters }: { slug: string; filters: Filters
       <label className="relative sm:col-span-2 lg:col-span-1">
         <span className="sr-only">Search</span>
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input name="q" defaultValue={filters.q} placeholder="Search items" className="pl-9" />
+        <Input name="q" defaultValue={filters.q} maxLength={MAX_QUERY_LENGTH} placeholder="Search items" className="pl-9" />
       </label>
       <Input name="minPrice" defaultValue={filters.minPrice} inputMode="decimal" placeholder="Min ETH" aria-label="Minimum price in ETH" />
       <Input name="maxPrice" defaultValue={filters.maxPrice} inputMode="decimal" placeholder="Max ETH" aria-label="Maximum price in ETH" />

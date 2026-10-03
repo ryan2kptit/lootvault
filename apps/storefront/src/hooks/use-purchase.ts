@@ -3,7 +3,8 @@
 import { checkoutFromWire, lootVault1155Abi } from "@lootvault/shared";
 import type { Api, CartLineInput, Order } from "@lootvault/web-shared/api";
 import { errorMessage, useApi } from "@lootvault/web-shared/wallet";
-import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import type { Hex } from "viem";
 import { useConfig, useConnection } from "wagmi";
 import { simulateContract, waitForTransactionReceipt, writeContract } from "wagmi/actions";
@@ -15,44 +16,123 @@ const STEP = { create: 0, sign: 1, mine: 2, confirm: 3, paid: 4 } as const;
 const POLL_INTERVAL_MS = 2_000;
 const POLL_TIMEOUT_MS = 60_000;
 
+/** Query keys of the collection and order lists in /me; the address part is matched by prefix. */
+const ACCOUNT_QUERY_KEYS = [["holdings"], ["my-orders"]] as const;
+
+/** The transaction is on its way (or mined): from here on the order must never be paid a second time. */
+interface SentPayment {
+  orderId: string;
+  txHash: Hex;
+}
+
 export type PurchaseState =
   | { status: "idle" }
-  | { status: "running"; step: number }
+  | { status: "running"; step: number; sent?: SentPayment }
+  /** A failure before any transaction was sent: safe to try again. */
   | { status: "error"; step: number; error: string }
+  /** The payment was sent but the server has not confirmed it yet. Not an error, and never retryable. */
+  | { status: "submitted"; step: number; sent: SentPayment }
   | { status: "done"; step: number; order: Order };
 
-/** POST /orders/:id/confirm; on 202 (receipt not indexed yet) poll GET /orders/:id until PAID. */
-async function confirmPayment(api: Api, orderId: string, txHash: Hex): Promise<Order> {
-  const result = await api.orders.confirm(orderId, txHash);
-  if (result.status === "PAID") return result.order;
-  for (const deadline = Date.now() + POLL_TIMEOUT_MS; Date.now() < deadline; ) {
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-    const order = await api.orders.get(orderId);
-    if (order.status === "PAID") return order;
+/** The server priced the order differently from what the buyer was shown, so nothing was sent to the wallet. */
+export class PriceChangedError extends Error {
+  constructor(readonly order: Order) {
+    super("Prices changed — review the new total and check out again.");
+    this.name = "PriceChangedError";
   }
-  throw new Error("Payment is taking longer than usual. It will appear in My orders once confirmed.");
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done);
+  });
 }
 
 /**
- * The purchase flow behind TxStatusStepper: create the order (signed checkout) -> purchase() in the wallet ->
- * wait for the receipt -> confirm with order-svc. A failure stops at its step; `onError` gets the raw error
- * so the caller can react (refresh stock after SoldOut, lower the cart after INSUFFICIENT_STOCK, …).
+ * POST /orders/:id/confirm; until PAID, poll GET /orders/:id. Errors (5xx, network) are retried until the deadline,
+ * because the payment is already on-chain. Resolves to null when the order is still unconfirmed at the deadline
+ * or the caller left: the indexer marks it PAID on its own.
  */
-export function usePurchase({ onError }: { onError?: (error: unknown) => void } = {}) {
+async function confirmPayment(api: Api, { orderId, txHash }: SentPayment, signal: AbortSignal): Promise<Order | null> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  const confirmed = await api.orders.confirm(orderId, txHash).catch(() => null);
+  if (confirmed?.status === "PAID") return confirmed.order;
+  while (Date.now() < deadline) {
+    await sleep(POLL_INTERVAL_MS, signal);
+    if (signal.aborted) return null;
+    const order = await api.orders.get(orderId).catch(() => null);
+    if (order?.status === "PAID") return order;
+  }
+  return null;
+}
+
+interface PurchaseCallbacks {
+  /** The block with the payment succeeded (the cart can be emptied). Always called, even if the user has left the page. */
+  onReceipt?: () => void;
+  /** The order is PAID. Not called after the component unmounted. */
+  onPaid?: (order: Order) => void;
+  /** The payment was sent but its confirmation is still pending. Not called after unmount. */
+  onPending?: () => void;
+  /** A failure before anything was sent, with the raw error so the caller can react (SoldOut, INSUFFICIENT_STOCK, PriceChangedError, …). Not called after unmount. */
+  onError?: (error: unknown) => void;
+}
+
+/**
+ * The purchase flow behind TxStatusStepper: create the order (signed checkout) -> compare its total with the one
+ * the buyer saw -> purchase() in the wallet -> wait for the receipt -> confirm with order-svc.
+ *
+ * Once the transaction hash exists, the flow can no longer end in a retryable error: a confirmation failure or
+ * timeout finishes as "submitted", and the hook refuses another purchase until the page is left.
+ */
+export function usePurchase({ onReceipt, onPaid, onPending, onError }: PurchaseCallbacks = {}) {
   const api = useApi();
   const config = useConfig();
   const { address } = useConnection();
+  const queryClient = useQueryClient();
   const [state, setState] = useState<PurchaseState>({ status: "idle" });
+  const lifetime = useRef<AbortController | null>(null);
+  const inFlight = useRef(false);
+  const awaitingConfirmation = useRef(false);
 
-  async function purchase(lines: CartLineInput[]): Promise<Order | null> {
+  // Aborted on unmount (and re-created after React Strict Mode's simulated one), so polling stops when the user leaves.
+  useEffect(() => {
+    const controller = new AbortController();
+    lifetime.current = controller;
+    return () => controller.abort();
+  }, []);
+
+  /** `shownTotalWei` is the total the buyer saw; the order is only paid if the server agrees with it. */
+  async function purchase(lines: CartLineInput[], shownTotalWei: bigint): Promise<void> {
+    const signal = lifetime.current?.signal;
+    if (!signal || inFlight.current || awaitingConfirmation.current) return;
+    inFlight.current = true;
+    const show = (next: PurchaseState) => {
+      if (!signal.aborted) setState(next);
+    };
+
     let step: number = STEP.create;
+    let sent: SentPayment | undefined;
     const advance = (next: number) => {
       step = next;
-      setState({ status: "running", step });
+      show({ status: "running", step, sent });
     };
+    /** A failure before the payment was sent (or a reverted one): nothing was paid, so a new attempt is safe. */
+    const fail = (error: unknown) => {
+      inFlight.current = false;
+      show({ status: "error", step, error: errorMessage(error) });
+      if (!signal.aborted) onError?.(error);
+    };
+
     try {
       advance(STEP.create);
       const { order, purchase: tx } = await api.orders.checkout(lines);
+      if (BigInt(tx.value) !== shownTotalWei) throw new PriceChangedError(order);
 
       advance(STEP.sign);
       const { request } = await simulateContract(config, {
@@ -64,20 +144,36 @@ export function usePurchase({ onError }: { onError?: (error: unknown) => void } 
         value: BigInt(tx.value),
         chainId: tx.chainId,
       });
-      const hash = await writeContract(config, request);
+      const txHash = await writeContract(config, request);
+      sent = { orderId: order.id, txHash };
+      awaitingConfirmation.current = true;
 
       advance(STEP.mine);
-      const receipt = await waitForTransactionReceipt(config, { hash, chainId: tx.chainId });
-      if (receipt.status !== "success") throw new Error("The transaction reverted on-chain. Nothing was charged except gas.");
-
-      advance(STEP.confirm);
-      const paid = await confirmPayment(api, order.id, hash);
-      setState({ status: "done", step: STEP.paid, order: paid });
-      return paid;
+      // A receipt that cannot be read (timeout, network) is not a failure: the transaction may well succeed.
+      const receipt = await waitForTransactionReceipt(config, { hash: txHash, chainId: tx.chainId }).catch(() => null);
+      if (receipt?.status === "reverted") {
+        awaitingConfirmation.current = false;
+        fail(new Error("The transaction reverted on-chain. Nothing was charged except gas."));
+        return;
+      }
+      if (receipt?.status === "success") onReceipt?.();
     } catch (error) {
-      setState({ status: "error", step, error: errorMessage(error) });
-      onError?.(error);
-      return null;
+      fail(error);
+      return;
+    }
+
+    // The payment is sent. Nothing below may end in a retryable error.
+    show({ status: "running", step: STEP.confirm, sent });
+    const paid = await confirmPayment(api, sent, signal);
+    inFlight.current = false;
+    for (const queryKey of ACCOUNT_QUERY_KEYS) void queryClient.invalidateQueries({ queryKey });
+    if (paid) {
+      awaitingConfirmation.current = false;
+      show({ status: "done", step: STEP.paid, order: paid });
+      if (!signal.aborted) onPaid?.(paid);
+    } else {
+      show({ status: "submitted", step: STEP.confirm, sent });
+      if (!signal.aborted) onPending?.();
     }
   }
 
