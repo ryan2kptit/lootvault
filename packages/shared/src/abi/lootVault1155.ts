@@ -223,6 +223,11 @@ export const lootVault1155Abi = [
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "RenounceDisabled",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -294,6 +299,31 @@ export const lootVault1155Abi = [
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "creator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "maxSupply",
+        "type": "uint256"
+      }
+    ],
+    "name": "EditionLocked",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": false,
         "internalType": "uint16",
         "name": "feeBps",
@@ -301,6 +331,25 @@ export const lootVault1155Abi = [
       }
     ],
     "name": "FeeUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferStarted",
     "type": "event"
   },
   {
@@ -509,6 +558,13 @@ export const lootVault1155Abi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "acceptOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -799,6 +855,19 @@ export const lootVault1155Abi = [
   },
   {
     "inputs": [],
+    "name": "pendingOwner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "platformSigner",
     "outputs": [
       {
@@ -881,7 +950,7 @@ export const lootVault1155Abi = [
     "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "view",
     "type": "function"
   },
   {

@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable, Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -12,13 +12,21 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 /// @notice Lazy-mint ERC-1155 for multi-store NFT shops.
 /// @dev Deliberately "dumb": every business rule (price, discounts, per-wallet limits,
 ///      publish state) lives off-chain and reaches the chain only through a Checkout
-///      signed by the platform. The contract enforces just five invariants:
-///      platform authorisation, buyer/deadline binding, single-use orderId,
-///      per-token supply cap, and exact payment with fee split.
-///      A token's creator and edition size are fixed on-chain by its first sale
-///      (first write wins), so even a leaked platform key cannot re-assign or
-///      inflate an edition that has already sold.
-contract LootVault1155 is ERC1155, EIP712, Ownable, Pausable, ReentrancyGuard {
+///      signed by the platform. On-chain, `purchase` enforces only these rules:
+///      1. the checkout carries a valid platform signature;
+///      2. it is bound to its buyer (msg.sender) and to its deadline;
+///      3. its orderId is single-use;
+///      4. it has at least one line;
+///      5. every line is valid (creator != 0, quantity > 0);
+///      6. a token's creator and edition size are fixed by its first sale (first
+///         write wins), so even a leaked platform key cannot re-assign or inflate
+///         an edition that has already sold;
+///      7. minting never exceeds that edition size (supply cap);
+///      8. msg.value equals the total exactly and is split between creators and
+///         the treasury fee.
+///      Ownership is two-step and cannot be renounced: incident response relies on
+///      the owner-only `pause` and `setPlatformSigner`.
+contract LootVault1155 is ERC1155, EIP712, Ownable2Step, Pausable, ReentrancyGuard {
     struct Line {
         uint256 tokenId;
         address creator;
@@ -58,6 +66,8 @@ contract LootVault1155 is ERC1155, EIP712, Ownable, Pausable, ReentrancyGuard {
     event PlatformSignerUpdated(address indexed signer);
     event TreasuryUpdated(address indexed treasury);
     event FeeUpdated(uint16 feeBps);
+    /// @notice Emitted once per token, at its first sale, when creator and edition size are fixed.
+    event EditionLocked(uint256 indexed tokenId, address indexed creator, uint256 maxSupply);
 
     error InvalidSignature();
     error WrongBuyer();
@@ -71,6 +81,7 @@ contract LootVault1155 is ERC1155, EIP712, Ownable, Pausable, ReentrancyGuard {
     error PayoutFailed();
     error FeeTooHigh();
     error ZeroAddress();
+    error RenounceDisabled();
 
     constructor(string memory baseUri, address initialOwner, address signer, address treasury_)
         ERC1155(baseUri)
@@ -103,6 +114,7 @@ contract LootVault1155 is ERC1155, EIP712, Ownable, Pausable, ReentrancyGuard {
                 // First sale fixes the creator and the edition size for good.
                 creatorOf[line.tokenId] = line.creator;
                 maxSupplyOf[line.tokenId] = line.maxSupply;
+                emit EditionLocked(line.tokenId, line.creator, line.maxSupply);
             } else if (knownCreator != line.creator) {
                 revert CreatorMismatch(line.tokenId);
             }
@@ -173,6 +185,11 @@ contract LootVault1155 is ERC1155, EIP712, Ownable, Pausable, ReentrancyGuard {
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    /// @notice Disabled: losing the owner would also lose `pause` and `setPlatformSigner`.
+    function renounceOwnership() public view override onlyOwner {
+        revert RenounceDisabled();
     }
 
     function _pay(address to, uint256 amount) private {

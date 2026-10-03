@@ -3,7 +3,17 @@ import { describe, it } from "node:test";
 
 import { checkoutTypedData, type CheckoutLine, type CheckoutMessage } from "@lootvault/shared";
 import { network } from "hardhat";
-import { getAddress, hashTypedData, keccak256, parseEther, toHex, zeroAddress, type Address, type Hex } from "viem";
+import {
+  encodeFunctionData,
+  getAddress,
+  hashTypedData,
+  keccak256,
+  parseEther,
+  toHex,
+  zeroAddress,
+  type Address,
+  type Hex,
+} from "viem";
 
 describe("LootVault1155", async () => {
   const { viem, networkHelpers } = await network.create();
@@ -291,5 +301,98 @@ describe("LootVault1155", async () => {
       { address: treasury.account.address, amount: 48n },
     ]);
     await viem.assertions.emitWithArgs(hash, vault, "Purchased", [c.orderId, getAddress(buyer.account.address), 1998n, 48n]);
+  });
+
+  it("rejects a checkout signed for another vault", async () => {
+    const { vault: vaultA } = await deploy();
+    const { vault: vaultB, asBuyer: buyerOnB } = await deploy();
+    const c = await checkout();
+    await viem.assertions.revertWithCustomError(
+      buyerOnB.write.purchase([c, await sign(vaultA.address, c)], { value: totalOf(c) }),
+      vaultB,
+      "InvalidSignature",
+    );
+  });
+
+  it("ignores a lower maxSupply on checkouts after the first sale", async () => {
+    const { vault, asBuyer } = await deploy();
+    const first = await checkout({ lines: [line({ quantity: 1n, maxSupply: 5n })] });
+    await asBuyer.write.purchase([first, await sign(vault.address, first)], { value: totalOf(first) });
+
+    const lowered = await checkout({ lines: [line({ quantity: 1n, maxSupply: 1n })] });
+    await asBuyer.write.purchase([lowered, await sign(vault.address, lowered)], { value: totalOf(lowered) });
+    assert.equal(await vault.read.minted([1n]), 2n);
+    assert.equal(await vault.read.maxSupplyOf([1n]), 5n);
+  });
+
+  it("caps a tokenId repeated with differing maxSupply in one cart at the first line's value", async () => {
+    const { vault, asBuyer } = await deploy();
+    const c = await checkout({ lines: [line({ quantity: 3n, maxSupply: 5n }), line({ quantity: 3n, maxSupply: 100n })] });
+    await viem.assertions.revertWithCustomErrorWithArgs(
+      asBuyer.write.purchase([c, await sign(vault.address, c)], { value: totalOf(c) }),
+      vault,
+      "SoldOut",
+      [1n],
+    );
+  });
+
+  it("emits EditionLocked once, at the first sale of a token", async () => {
+    const { vault, asBuyer } = await deploy();
+    const first = await checkout();
+    const firstHash = await asBuyer.write.purchase([first, await sign(vault.address, first)], { value: totalOf(first) });
+    await viem.assertions.emitWithArgs(firstHash, vault, "EditionLocked", [1n, getAddress(creatorA.account.address), 5n]);
+
+    const second = await checkout();
+    const secondHash = await asBuyer.write.purchase([second, await sign(vault.address, second)], { value: totalOf(second) });
+    const firstReceipt = await publicClient.getTransactionReceipt({ hash: firstHash });
+    const secondReceipt = await publicClient.getTransactionReceipt({ hash: secondHash });
+    const locked = await publicClient.getContractEvents({
+      address: vault.address,
+      abi: vault.abi,
+      eventName: "EditionLocked",
+      fromBlock: firstReceipt.blockNumber,
+      toBlock: secondReceipt.blockNumber,
+    });
+    assert.equal(locked.length, 1);
+  });
+
+  it("transfers ownership in two steps", async () => {
+    const { vault, asStranger } = await deploy();
+    await vault.write.transferOwnership([stranger.account.address]);
+    assert.equal(await vault.read.owner(), getAddress(owner.account.address));
+    assert.equal(await vault.read.pendingOwner(), getAddress(stranger.account.address));
+
+    await asStranger.write.acceptOwnership();
+    assert.equal(await vault.read.owner(), getAddress(stranger.account.address));
+  });
+
+  it("reverts RenounceDisabled when the owner tries to renounce ownership", async () => {
+    const { vault } = await deploy();
+    await viem.assertions.revertWithCustomError(
+      owner.sendTransaction({ to: vault.address, data: encodeFunctionData({ abi: vault.abi, functionName: "renounceOwnership" }) }),
+      vault,
+      "RenounceDisabled",
+    );
+    assert.equal(await vault.read.owner(), getAddress(owner.account.address));
+  });
+
+  it("rejects pause, setTreasury and setURI from non-owners", async () => {
+    const { vault, asStranger } = await deploy();
+    const strangerAddress = getAddress(stranger.account.address);
+    await viem.assertions.revertWithCustomErrorWithArgs(asStranger.write.pause(), vault, "OwnableUnauthorizedAccount", [
+      strangerAddress,
+    ]);
+    await viem.assertions.revertWithCustomErrorWithArgs(
+      asStranger.write.setTreasury([strangerAddress]),
+      vault,
+      "OwnableUnauthorizedAccount",
+      [strangerAddress],
+    );
+    await viem.assertions.revertWithCustomErrorWithArgs(
+      asStranger.write.setURI(["https://evil.example/{id}.json"]),
+      vault,
+      "OwnableUnauthorizedAccount",
+      [strangerAddress],
+    );
   });
 });
