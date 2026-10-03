@@ -154,6 +154,19 @@ describe("IndexerService", () => {
     expect(await indexer.lastBlock()).toBe(15);
   });
 
+  it("stays quiet on a fresh deploy that is still within CONFIRMATIONS of the head", async () => {
+    chain.head = 8n;
+    chain.logs = [];
+    await boot({ START_BLOCK: "7", BATCH_SIZE: "500", CONFIRMATIONS: "3" });
+    const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      expect(await indexer.tick()).toBeNull(); // cursor 6, safe head 5
+      expect(warn.mock.calls.filter(([message]) => String(message).includes("ahead of chain head"))).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("warns, at most once a minute, when the stored cursor is ahead of the chain head (the chain was reset)", async () => {
     chain.head = 30n;
     chain.logs = [];
@@ -166,7 +179,9 @@ describe("IndexerService", () => {
       expect(await indexer.tick()).toBeNull();
       const stale = warn.mock.calls.filter(([message]) => String(message).includes("ahead of chain head"));
       expect(stale).toEqual([
-        ["cursor 30 is ahead of chain head 4: the chain was reset; run npm run infra:reset or drop the indexer DB"],
+        [
+          "cursor 30 is ahead of chain head 4: the chain was reset; run npm run infra:reset (the indexer cursor and the catalog/order projections belong to the old chain)",
+        ],
       ]);
     } finally {
       warn.mockRestore();

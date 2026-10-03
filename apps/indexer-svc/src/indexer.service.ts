@@ -57,7 +57,7 @@ export class IndexerService {
     const head = await this.chain.getHead();
     const fromBlock = BigInt(previous) + 1n;
     const safeHead = head - BigInt(this.config.CONFIRMATIONS);
-    this.warnIfCursorAhead(previous, head, safeHead);
+    this.warnIfCursorAhead(previous, head);
     const batchEnd = fromBlock + BigInt(this.config.BATCH_SIZE) - 1n;
     const toBlock = safeHead < batchEnd ? safeHead : batchEnd;
     if (toBlock < fromBlock) return null;
@@ -82,13 +82,16 @@ export class IndexerService {
   }
 
   /**
-   * A cursor beyond the confirmed head means the chain restarted with a fresh volume: the stored cursor
+   * A cursor beyond the chain head means the chain restarted with a fresh volume: the stored cursor
    * and the projections built from the old chain no longer match it, and the indexer would idle silently.
+   * Compared with the raw head, not the confirmed one, so a fresh deploy within CONFIRMATIONS blocks stays quiet.
    */
-  private warnIfCursorAhead(cursor: number, head: bigint, safeHead: bigint): void {
-    if (BigInt(cursor) <= safeHead || Date.now() - this.lastStaleWarning < STALE_CURSOR_WARN_INTERVAL_MS) return;
+  private warnIfCursorAhead(cursor: number, head: bigint): void {
+    if (BigInt(cursor) <= head || Date.now() - this.lastStaleWarning < STALE_CURSOR_WARN_INTERVAL_MS) return;
     this.lastStaleWarning = Date.now();
-    this.logger.warn(`cursor ${cursor} is ahead of chain head ${head}: the chain was reset; run npm run infra:reset or drop the indexer DB`);
+    this.logger.warn(
+      `cursor ${cursor} is ahead of chain head ${head}: the chain was reset; run npm run infra:reset (the indexer cursor and the catalog/order projections belong to the old chain)`,
+    );
   }
 
   /** Runs ticks until caught up or `budgetMs` elapses (a scheduled Lambda's loop). */
