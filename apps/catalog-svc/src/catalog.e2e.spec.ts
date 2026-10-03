@@ -104,6 +104,34 @@ describe("catalog-svc HTTP API", () => {
       await http().get(`/catalog/items/${item.id}`).expect(404);
     });
 
+    it("writes LIVE metadata before persisting edits, so a failed S3 put can be retried", async () => {
+      const item = await createItem({ name: "Tide Serpent" });
+      await http().post(`/catalog/items/${item.id}/publish`).set("authorization", asAlice()).expect(200);
+
+      media.failNextPut = true;
+      const failed = await http().patch(`/catalog/items/${item.id}`).set("authorization", asAlice()).send({ name: "Tide Leviathan" });
+      expect(failed.status).toBeGreaterThanOrEqual(500);
+      expect((await http().get(`/catalog/items/${item.id}`).expect(200)).body.name).toBe("Tide Serpent");
+
+      await http().patch(`/catalog/items/${item.id}`).set("authorization", asAlice()).send({ name: "Tide Leviathan" }).expect(200);
+      expect((media.documents.get(metadataKey(BigInt(item.tokenId))) as { name: string }).name).toBe("Tide Leviathan");
+      expect((await http().get(`/catalog/items/${item.id}`).expect(200)).body.name).toBe("Tide Leviathan");
+    });
+
+    it("only accepts platform-hosted images", async () => {
+      const offPlatform = "https://evil.example/media/a.png";
+      const created = await http()
+        .post("/catalog/items")
+        .set("authorization", asAlice())
+        .send({ name: "Bad", imageUrl: offPlatform, supply: 1, priceWei: "1" })
+        .expect(400);
+      expect(created.body.error.code).toBe("IMAGE_NOT_HOSTED");
+
+      const item = await createItem({ name: "Hosted" });
+      const updated = await http().patch(`/catalog/items/${item.id}`).set("authorization", asAlice()).send({ imageUrl: offPlatform }).expect(400);
+      expect(updated.body.error.code).toBe("IMAGE_NOT_HOSTED");
+    });
+
     it("locks the edition size once a copy has sold", async () => {
       const item = await createItem({ name: "Sun Phoenix" });
       await http().patch(`/catalog/items/${item.id}`).set("authorization", asAlice()).send({ supply: 7 }).expect(200);

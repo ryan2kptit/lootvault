@@ -50,6 +50,7 @@ export class ItemsService implements OnModuleInit {
   }
 
   async create(owner: string, dto: CreateItemDto): Promise<ItemView> {
+    this.assertHostedImage(dto.imageUrl);
     const store = await this.stores.byOwner(owner);
     const _id = new Types.ObjectId();
     const item = await this.items.create({
@@ -68,6 +69,7 @@ export class ItemsService implements OnModuleInit {
 
   async update(owner: string, id: string, dto: UpdateItemDto): Promise<ItemView> {
     const item = await this.owned(owner, id);
+    if (dto.imageUrl !== undefined) this.assertHostedImage(dto.imageUrl);
     if (dto.supply !== undefined && dto.supply !== item.supply && item.sold > 0) {
       throw new AppError("SUPPLY_LOCKED", 409, "Edition size is fixed on-chain after the first sale");
     }
@@ -79,8 +81,9 @@ export class ItemsService implements OnModuleInit {
     if (dto.imageUrl !== undefined) item.imageUrl = dto.imageUrl;
     if (dto.supply !== undefined) item.supply = dto.supply;
     if (dto.priceWei !== undefined) item.priceWei = Types.Decimal128.fromString(dto.priceWei);
-    await item.save();
+    // Metadata first, like publish(): if the S3 put fails nothing is persisted, so a retry still sees the change.
     if (item.status === "LIVE" && metadataChanged) await this.writeMetadata(item);
+    await item.save();
     return toItemView(item);
   }
 
@@ -158,6 +161,14 @@ export class ItemsService implements OnModuleInit {
       supply: item.supply,
       sold: item.sold,
     }));
+  }
+
+  /** Published metadata may only reference media uploaded through our presigned POST. */
+  private assertHostedImage(imageUrl: string): void {
+    const prefix = `${this.config.MEDIA_PUBLIC_URL.replace(/\/+$/, "")}/media/`;
+    if (!imageUrl.startsWith(prefix)) {
+      throw new AppError("IMAGE_NOT_HOSTED", 400, `imageUrl must be an image uploaded via /catalog/uploads/presign (starting with ${prefix})`);
+    }
   }
 
   private async owned(owner: string, id: string): Promise<ItemDocument> {

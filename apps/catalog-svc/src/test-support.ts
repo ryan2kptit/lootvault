@@ -10,12 +10,18 @@ export const INTERNAL_KEY = "internal-key-for-tests";
 /** In-memory MediaStorage that records written JSON documents. */
 export class FakeMediaStorage implements MediaStorage {
   readonly documents = new Map<string, unknown>();
+  /** Set to make the next putJson reject once (simulates an S3 outage). */
+  failNextPut = false;
 
   async presignImageUpload(contentType: string) {
     return { url: "http://media.test/upload", fields: { "Content-Type": contentType }, key: "media/x.png", publicUrl: "http://media.test/media/x.png" };
   }
 
   async putJson(key: string, document: unknown) {
+    if (this.failNextPut) {
+      this.failNextPut = false;
+      throw new Error("S3 unavailable");
+    }
     this.documents.set(key, document);
     return `http://media.test/${key}`;
   }
