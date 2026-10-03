@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "compile": "hardhat compile",
-    "build": "hardhat compile && node scripts/export-abi.mjs",
+    "build": "hardhat compile && node scripts/export-abi.mjs && npm run build -w @lootvault/shared",
     "test": "hardhat test",
     "deploy": "hardhat run scripts/deploy.ts"
   },
