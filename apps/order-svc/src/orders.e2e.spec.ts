@@ -1,7 +1,7 @@
 import type { INestApplication } from "@nestjs/common";
 import { getModelToken } from "@nestjs/mongoose";
 import { startMongo } from "@lootvault/nest-common/testing";
-import { checkoutFromWire, checkoutTypedData, type CheckoutWire } from "@lootvault/shared";
+import { type ChainEvent, checkoutFromWire, checkoutTypedData, type CheckoutWire } from "@lootvault/shared";
 import type { Model } from "mongoose";
 import request from "supertest";
 import { type Hex, recoverTypedDataAddress } from "viem";
@@ -248,6 +248,25 @@ describe("order-svc", () => {
       const txHash = mined(body);
       await http().post(`/orders/${body.order.id}/confirm`).set("authorization", asBuyer()).send({ txHash }).expect(200);
       expect((await orders.findOne({ orderId: body.order.orderId }))?.status).toBe("PAID");
+    });
+
+    it("leaves an order PENDING when a Purchased event from the queue paid a different total", async () => {
+      const { body } = await checkout([{ itemId: ITEM_A, quantity: 1 }]).expect(201);
+      const purchased = (total: bigint): ChainEvent => ({
+        id: "31337:0xwrongtotal:0",
+        type: "chain.Purchased",
+        chainId: 31337,
+        blockNumber: 12,
+        blockTimestamp: 1_700_000_000,
+        txHash: "0xwrongtotal",
+        logIndex: 0,
+        data: { orderId: body.order.orderId, buyer: BUYER, total: total.toString(), fee: "0" },
+      });
+
+      await app.get(PurchasedHandler).handle(purchased(BigInt(body.order.totalWei) - 1n));
+      const order = await orders.findOne({ orderId: body.order.orderId });
+      expect(order?.status).toBe("PENDING");
+      expect(order?.txHash).toBeUndefined();
     });
 
     it("reports seller stats, sales lists and public recent sales", async () => {

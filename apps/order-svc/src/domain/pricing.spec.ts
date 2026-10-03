@@ -12,6 +12,19 @@ describe("pricing", () => {
     expect(line).toMatchObject({ tokenId: "7", unitPriceWei: 10n ** 18n, quantity: 2, maxSupply: 5, creator: "0x90f79bf6eb2c4f870365e785982e1f101e93b906" });
   });
 
+  it("refuses to sign a malformed catalog price", () => {
+    for (const priceWei of ["0", "", "-5", "1.5", "1e18", "0x10", " 7", "abc"]) {
+      const bad = new Map<string, CatalogItem>([["a", { ...items.get("a")!, priceWei }]]);
+      let error: unknown;
+      try {
+        priceLines([{ itemId: "a", quantity: 1 }], bad);
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toMatchObject({ code: "ITEM_UNAVAILABLE", details: { itemId: "a" } });
+    }
+  });
+
   it("totals with bigint precision", () => {
     expect(orderTotal(priceLines([{ itemId: "a", quantity: 2 }, { itemId: "b", quantity: 3 }], items))).toBe(2n * 10n ** 18n + 9n);
   });

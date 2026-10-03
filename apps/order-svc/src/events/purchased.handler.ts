@@ -23,6 +23,15 @@ export class PurchasedHandler {
   async handle(event: ChainEvent): Promise<void> {
     if (event.type !== EVENT_TYPES.Purchased) return;
     await this.inbox.runOnce(event, async (session) => {
+      // Same check as the confirm fast path (TX_MISMATCH): the paid total must equal the order total.
+      // Returning inside runOnce records the event, so a mismatching delivery is not retried forever.
+      const order = await this.orders.findOne({ orderId: event.data.orderId }, { totalWei: 1 }).session(session);
+      if (order && BigInt(event.data.total) !== BigInt(order.totalWei.toString())) {
+        this.logger.warn(
+          `Purchased ${event.id} paid ${event.data.total} but order ${event.data.orderId} totals ${order.totalWei.toString()}: not marking it PAID`,
+        );
+        return;
+      }
       const result = await this.orders.updateOne(
         { orderId: event.data.orderId, status: { $in: statusesThatCanBecome("PAID") } },
         {

@@ -1,3 +1,5 @@
+import { AppError } from "@lootvault/nest-common";
+
 import type { CartLineInput } from "./cart-rules";
 import type { CatalogItem } from "./catalog-item";
 
@@ -20,6 +22,10 @@ export interface PricedLine {
 export function priceLines(lines: CartLineInput[], items: Map<string, CatalogItem>): PricedLine[] {
   return lines.map((line) => {
     const item = items.get(line.itemId)!;
+    // The catalog is a separate service; never sign (or crash BigInt() on) a price that is not a positive integer.
+    if (!/^[1-9]\d*$/.test(item.priceWei)) {
+      throw new AppError("ITEM_UNAVAILABLE", 409, "An item in the cart has no valid price", { itemId: line.itemId });
+    }
     return {
       itemId: item.id,
       tokenId: item.tokenId,
