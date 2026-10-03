@@ -106,9 +106,10 @@ function purchase(Checkout calldata c, bytes calldata platformSig) external paya
 | 3 | `msg.sender == c.buyer` | `WrongBuyer` |
 | 4 | `block.timestamp <= c.deadline` | `Expired` |
 | 5 | `!usedOrders[c.orderId]`, sau đó đánh dấu đã dùng | `OrderUsed` |
-| 6 | Với mỗi line: `creatorOf[tokenId]` bằng 0 (lần mint đầu, gán luôn) hoặc bằng `line.creator` | `CreatorMismatch(tokenId)` |
-| 7 | Với mỗi line: `minted[tokenId] + quantity <= maxSupply` | `SoldOut(tokenId)` |
-| 8 | `msg.value == Σ quantity × unitPrice` | `WrongPayment` |
+| 6 | Với mỗi line: `creator ≠ 0` và `quantity > 0` | `InvalidLine(tokenId)` |
+| 7 | Với mỗi line: `creatorOf[tokenId]` bằng 0 (lần bán đầu: **gán `creatorOf` và `maxSupplyOf` một lần duy nhất**) hoặc bằng `line.creator` | `CreatorMismatch(tokenId)` |
+| 8 | Với mỗi line: `minted[tokenId] + quantity <= maxSupplyOf[tokenId]` (cap on-chain, không phải `line.maxSupply`) | `SoldOut(tokenId)` |
+| 9 | `msg.value == Σ quantity × unitPrice` | `WrongPayment` |
 
 **Hiệu ứng khi mua thành công:**
 - Mỗi line: `minted += quantity`, `_mint(buyer, tokenId, quantity)` (emit `TransferSingle`).
@@ -128,7 +129,7 @@ function purchase(Checkout calldata c, bytes calldata platformSig) external paya
 
 **Trade-off đã chấp nhận:**
 - Publisher phải tin platform về giá.
-- Nếu lộ platform key: dùng `pause` để dừng, xoay key bằng `setPlatformSigner`; supply cap giới hạn thiệt hại. Ở production nên ký bằng KMS secp256k1.
+- Nếu lộ platform key: dùng `pause` để dừng, xoay key bằng `setPlatformSigner`. Vì **edition size và creator bị khoá on-chain từ lần bán đầu**, kẻ giữ key **không thể** đổi creator hay bơm thêm supply cho những NFT đã bán. Phần vẫn hở: kẻ đó có thể mint miễn phí, hoặc chiếm trước, những item **chưa bán bản nào**. Cách xử lý: tạo lại item đó, sẽ có ObjectId mới nên tokenId mới. Ở production nên ký bằng KMS secp256k1. (Phát hiện này đến từ review Task 4 của Plan 1.)
 - Checkout đã ký vẫn còn hiệu lực tối đa 5 phút, và chỉ với đúng buyer và đúng orderId trong đó. Unpublish hay đổi giá có hiệu lực ngay cho các checkout mới.
 
 ## 5. Services
@@ -175,7 +176,7 @@ function purchase(Checkout calldata c, bytes calldata platformSig) external paya
 | | `GET /catalog/stores` · `GET /catalog/stores/:slug` | Public |
 | | `GET /catalog/stores/me` (JWT) | Store của tôi, hoặc `404 STORE_NOT_FOUND` |
 | Studio | `POST /catalog/items` (JWT, owner) | Tạo DRAFT `{name, description, imageUrl, supply(1..10000), priceWei}` |
-| | `PATCH /catalog/items/:id` (JWT, owner) | Sửa tên, mô tả, ảnh, giá, supply (phải ≥ sold) |
+| | `PATCH /catalog/items/:id` (JWT, owner) | Sửa tên, mô tả, ảnh, giá. **Chỉ sửa được supply khi `sold == 0`**, vì contract khoá edition size từ lần bán đầu. Nếu `sold > 0` thì trả `409 SUPPLY_LOCKED` |
 | | `POST /catalog/items/:id/publish` (JWT, owner) | Ghi metadata JSON lên S3 `metadata/{64hex}.json` gồm `{name, description, image, external_url}`, rồi chuyển LIVE |
 | | `POST /catalog/items/:id/unpublish` (JWT, owner) | Chuyển HIDDEN |
 | | `GET /catalog/me/items` (JWT) | Mọi item của store tôi, đủ mọi status |
