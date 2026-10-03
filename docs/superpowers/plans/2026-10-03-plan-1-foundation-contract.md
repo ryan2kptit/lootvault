@@ -559,13 +559,13 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 }
 ```
 
-`packages/shared/tsconfig.json`:
+`packages/shared/tsconfig.json` (`node10` resolution on purpose: viem is `"type": "module"`, and under `node16` TypeScript refuses CommonJS files importing it, with TS1541/TS1479. `node10` is also NestJS's default, and TS 5.9 accepts it):
 ```json
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "module": "node16",
-    "moduleResolution": "node16",
+    "module": "commonjs",
+    "moduleResolution": "node10",
     "rootDir": "src",
     "outDir": "dist",
     "types": ["node"]

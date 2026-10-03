@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { hashTypedData, zeroAddress } from "viem";
 
-import { checkoutTypedData, checkoutTypes } from "./eip712.mjs";
+import { checkoutTypedData, checkoutTypes } from "./eip712";
 
 describe("eip712", () => {
   const message = {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { itemIdFromTokenId, metadataFileName, tokenIdFromItemId } from "./ids.mjs";
+import { itemIdFromTokenId, metadataFileName, tokenIdFromItemId } from "./ids";
 
 describe("ids", () => {
   const itemId = "66fd2c1e9b1d4a0012ab34cd";
