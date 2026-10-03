@@ -51,7 +51,7 @@ nvm use
 npm install
 npm run infra:up        # mongo (replica set), moto (S3/SNS/SQS), anvil (persistent chain)
 npm run bootstrap       # .env, AWS resources, contract deploy (all idempotent)
-npm run dev             # 4 services in watch mode (keep this terminal open)
+npm run dev             # 4 services in watch mode + Studio and Storefront (keep this terminal open)
 ```
 
 In a second terminal:
@@ -62,6 +62,11 @@ npm run demo:smoke      # publish -> checkout -> pay -> confirm -> projections
 npm run demo:race       # 20 buyers race for 5 copies
 npm run doctor          # health of everything above
 ```
+
+| App | URL |
+|---|---|
+| Studio (publishers) | http://localhost:3000 |
+| Storefront (buyers) | http://localhost:3100 |
 
 | Service | URL | Swagger |
 |---|---|---|
@@ -74,22 +79,39 @@ Local wallets are anvil's public test accounts. `scripts/lib/accounts.mjs` lists
 - #3 and #4 are the publishers;
 - #5 and #6 are the buyers.
 
+## Web apps
+
+Two Next.js 16 apps (App Router, React 19, Tailwind v4, TanStack Query, wagmi + viem) share `packages/web-shared`:
+
+| Studio `:3000` | Storefront `:3100` |
+|---|---|
+| `/` connect, sign in, open a store (name, slug, logo) | `/` all stores |
+| `/dashboard` revenue, orders, copies sold, 7-day chart, recent sales | `/s/[slug]` search, price and stock filters, sort and pages, all in the URL and server-rendered |
+| `/items` publish, unpublish, edit | `/s/[slug]/items/[id]` OG tags, quantity, add to cart or buy now, recent sales |
+| `/items/new`, `/items/[id]` image upload (presigned POST), name, supply, price in ETH | `/s/[slug]/cart` one cart per store, paid in one transaction |
+| `/orders` sales, filtered by status | `/me` my collection and my orders |
+
+- **Demo wallet.** On anvil (`NEXT_PUBLIC_CHAIN_ID=31337`), "Connect wallet" offers a demo wallet with a role picker: Publisher A and B, Buyer 1, 2 and 3. It uses anvil's unlocked accounts, so the node signs; no browser extension is needed. MetaMask (injected) works too.
+- **Where things live.** `web-shared/src/api` has one typed module per service (`auth.ts`, `catalog.ts`, `orders.ts`) and maps error codes to readable messages. `web-shared/src/wallet` has the wagmi config, the SIWE session and the contract revert messages. Public pages are server components; pages that need a signed-in wallet are client components.
+- **Env.** Both apps read the root `.env` (see the "Web apps" section of `.env.example`). The browser calls same-origin `/api/<service>/*`, which Next rewrites to the service.
+
 ## Scripts
 
 | Command | What it does |
 |---|---|
-| `npm test` | All suites: scripts, shared, the 5 NestJS packages, and the contract (Hardhat) |
-| `npm run build` | Builds the packages and all 4 services |
+| `npm test` | All suites: scripts, shared, web-shared (vitest), typecheck, the 5 NestJS packages, and the contract (Hardhat) |
+| `npm run build` | Builds the packages, all 4 services and both web apps |
 | `npm run bootstrap` | Merges new keys from `.env.example` into `.env`, creates the S3, SNS and SQS resources, and deploys the contract unless it is already on-chain (`deploy:local -- --force` redeploys) |
-| `npm run doctor` | Checks Node, `.env`, Mongo, moto, chain, contract, signer key, AWS resources and that the dead-letter queues are empty, and reports whether each service is up |
+| `npm run doctor` | Checks Node, `.env`, Mongo, moto, chain, contract, signer key, AWS resources and that the dead-letter queues are empty, and reports whether each service and web app is up |
 | `npm run dlq:redrive` | Moves every message from the catalog and order dead-letter queues back to their source queues (after you fixed what made a consumer fail) |
 | `npm run infra:reset` | Wipes all local state (volumes). Afterwards run `infra:up`, `bootstrap`, `dev` and `seed` again |
 
 ## Layout
 
 ```
-apps/        auth-svc · catalog-svc · order-svc · indexer-svc   (NestJS 11)
+apps/        auth-svc · catalog-svc · order-svc · indexer-svc   (NestJS 11) · studio · storefront   (Next.js 16)
 packages/    contracts (Hardhat 3, Solidity) · shared (EIP-712, events, ABI) · nest-common (config, errors, auth, inbox, SNS/SQS)
+             web-shared (API client, wallet, session, cart, UI kit for the web apps)
 scripts/     bootstrap, seed, demos, doctor
 docs/        design spec, plans, decision records
 ```
