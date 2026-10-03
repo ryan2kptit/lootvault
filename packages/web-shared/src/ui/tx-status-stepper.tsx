@@ -23,7 +23,7 @@ export function TxStatusStepper({ steps, current, status, error }: TxStatusStepp
         const failed = status === "error" && index === current;
         const active = status === "running" && index === current;
         return (
-          <li key={label} className="flex gap-3">
+          <li key={label} className="flex gap-3" aria-current={active ? "step" : undefined}>
             <span
               className={cn(
                 "flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium",
@@ -36,8 +36,11 @@ export function TxStatusStepper({ steps, current, status, error }: TxStatusStepp
               {done ? <Check className="size-3.5" /> : failed ? <X className="size-3.5" /> : active ? <Spinner className="size-3.5" /> : index + 1}
             </span>
             <div className="flex flex-col pt-0.5">
-              <span className={cn("text-sm", (active || failed) && "font-medium", !done && !active && !failed && "text-muted-foreground")}>{label}</span>
-              {failed && error ? <span className="text-sm text-destructive">{error}</span> : null}
+              <span className={cn("text-sm", (active || failed) && "font-medium", !done && !active && !failed && "text-muted-foreground")}>
+                {label}
+                <span className="sr-only">{done ? " (completed)" : active ? " (in progress)" : failed ? " (failed)" : ""}</span>
+              </span>
+              {failed && error ? <span className="text-sm text-destructive" role="alert">{error}</span> : null}
             </div>
           </li>
         );

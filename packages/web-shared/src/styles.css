@@ -11,9 +11,13 @@
   --primary: oklch(0.55 0.21 277);
   --primary-foreground: oklch(0.99 0 0);
   --success: oklch(0.6 0.15 155);
+  --success-foreground: oklch(0.40 0.12 150);
   --warning: oklch(0.72 0.15 70);
+  --warning-foreground: oklch(0.45 0.13 70);
   --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(0.45 0.18 27);
   --ring: oklch(0.55 0.21 277 / 0.4);
+  color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -26,6 +30,9 @@
     --border: oklch(0.3 0.012 265);
     --primary: oklch(0.66 0.19 277);
     --primary-foreground: oklch(0.15 0.01 265);
+    --success-foreground: oklch(0.85 0.12 150);
+    --warning-foreground: oklch(0.88 0.13 85);
+    --destructive-foreground: oklch(0.80 0.14 27);
     --ring: oklch(0.66 0.19 277 / 0.45);
   }
 }
@@ -40,8 +47,11 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-ring: var(--ring);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }

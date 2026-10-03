@@ -11,10 +11,11 @@ export function Skeleton({ className, ...props }: ComponentProps<"div">) {
   return <div className={cn("animate-pulse rounded-lg bg-muted", className)} {...props} />;
 }
 
-export function Progress({ value }: { value: number }) {
+export function Progress({ value, label }: { value: number; label?: string }) {
+  const clampedValue = Math.max(0, Math.min(100, Number.isNaN(value) ? 0 : value));
   return (
-    <div role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={100} className="h-2 w-full overflow-hidden rounded-full bg-muted">
-      <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${value}%` }} />
+    <div role="progressbar" aria-valuenow={clampedValue} aria-valuemin={0} aria-valuemax={100} aria-label={label} className="h-2 w-full overflow-hidden rounded-full bg-muted">
+      <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${clampedValue}%` }} />
     </div>
   );
 }
@@ -48,7 +49,7 @@ export function ErrorState({ title = "Something went wrong", message, action }: 
 
 export function LoadingState({ label = "Loading…" }: { label?: string }) {
   return (
-    <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+    <div role="status" className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
       <Spinner /> {label}
     </div>
   );
