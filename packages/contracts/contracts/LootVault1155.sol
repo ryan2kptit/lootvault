@@ -15,6 +15,9 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///      signed by the platform. The contract enforces just five invariants:
 ///      platform authorisation, buyer/deadline binding, single-use orderId,
 ///      per-token supply cap, and exact payment with fee split.
+///      A token's creator and edition size are fixed on-chain by its first sale
+///      (first write wins), so even a leaked platform key cannot re-assign or
+///      inflate an edition that has already sold.
 contract LootVault1155 is ERC1155, EIP712, Ownable, Pausable, ReentrancyGuard {
     struct Line {
         uint256 tokenId;
@@ -47,6 +50,7 @@ contract LootVault1155 is ERC1155, EIP712, Ownable, Pausable, ReentrancyGuard {
     uint16 public feeBps;
 
     mapping(uint256 tokenId => uint256) public minted;
+    mapping(uint256 tokenId => uint256) public maxSupplyOf;
     mapping(uint256 tokenId => address) public creatorOf;
     mapping(bytes32 orderId => bool) public usedOrders;
 
@@ -60,6 +64,7 @@ contract LootVault1155 is ERC1155, EIP712, Ownable, Pausable, ReentrancyGuard {
     error Expired();
     error OrderUsed();
     error EmptyCheckout();
+    error InvalidLine(uint256 tokenId);
     error CreatorMismatch(uint256 tokenId);
     error SoldOut(uint256 tokenId);
     error WrongPayment();
@@ -92,13 +97,16 @@ contract LootVault1155 is ERC1155, EIP712, Ownable, Pausable, ReentrancyGuard {
         uint256 total;
         for (uint256 i; i < c.lines.length; ++i) {
             Line calldata line = c.lines[i];
+            if (line.creator == address(0) || line.quantity == 0) revert InvalidLine(line.tokenId);
             address knownCreator = creatorOf[line.tokenId];
             if (knownCreator == address(0)) {
+                // First sale fixes the creator and the edition size for good.
                 creatorOf[line.tokenId] = line.creator;
+                maxSupplyOf[line.tokenId] = line.maxSupply;
             } else if (knownCreator != line.creator) {
                 revert CreatorMismatch(line.tokenId);
             }
-            if (minted[line.tokenId] + line.quantity > line.maxSupply) revert SoldOut(line.tokenId);
+            if (minted[line.tokenId] + line.quantity > maxSupplyOf[line.tokenId]) revert SoldOut(line.tokenId);
             minted[line.tokenId] += line.quantity;
             total += line.quantity * line.unitPrice;
         }
