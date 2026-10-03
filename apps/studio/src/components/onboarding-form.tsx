@@ -28,6 +28,7 @@ export function OnboardingForm() {
   const [description, setDescription] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [slugError, setSlugError] = useState<string>();
+  const [uploading, setUploading] = useState(false);
 
   const createStore = useMutation({
     mutationFn: () => api.catalog.createStore({ name, slug, description: description || undefined, logoUrl: logoUrl || undefined }),
@@ -89,10 +90,10 @@ export function OnboardingForm() {
           </div>
           <div className="flex flex-col gap-1.5">
             <span className="text-sm font-medium">Logo</span>
-            <ImageUpload value={logoUrl} onChange={setLogoUrl} label="Upload logo" />
+            <ImageUpload value={logoUrl} onChange={setLogoUrl} label="Upload logo" onUploadingChange={setUploading} />
           </div>
-          <Button type="submit" size="lg" className="sm:col-span-2" disabled={createStore.isPending}>
-            {createStore.isPending ? "Creating…" : "Create store"}
+          <Button type="submit" size="lg" className="sm:col-span-2" disabled={createStore.isPending || uploading}>
+            {createStore.isPending ? "Creating…" : uploading ? "Uploading logo…" : "Create store"}
           </Button>
         </form>
       </CardContent>

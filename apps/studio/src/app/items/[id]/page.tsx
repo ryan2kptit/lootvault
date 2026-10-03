@@ -1,10 +1,12 @@
 "use client";
 
+import type { Store } from "@lootvault/web-shared/api";
 import { publicEnv } from "@lootvault/web-shared/env";
-import { Button, buttonVariants, Card, CardContent, ErrorState, LoadingState } from "@lootvault/web-shared/ui";
+import { Button, buttonVariants, Card, CardContent, EmptyState, ErrorState, LoadingState } from "@lootvault/web-shared/ui";
 import { errorMessage, useApi } from "@lootvault/web-shared/wallet";
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, PackageX } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use } from "react";
 
@@ -13,7 +15,7 @@ import { ItemStatusBadge } from "@/components/item-status-badge";
 import { PublishButton } from "@/components/publish-button";
 import { RequireStore } from "@/components/require-store";
 
-function EditItem({ id, slug }: { id: string; slug: string }) {
+function EditItem({ id, store }: { id: string; store: Store }) {
   const api = useApi();
   const router = useRouter();
   // Owners read their drafts and hidden items through the public item route (it accepts the owner's token).
@@ -21,6 +23,18 @@ function EditItem({ id, slug }: { id: string; slug: string }) {
 
   if (item.isPending) return <LoadingState label="Loading item…" />;
   if (item.isError) return <ErrorState message={errorMessage(item.error)} action={<Button variant="outline" onClick={() => item.refetch()}>Try again</Button>} />;
+
+  // The public item route serves anyone's items; only the owner's store may edit.
+  if (item.data.storeId !== store.id) {
+    return (
+      <EmptyState
+        icon={<PackageX />}
+        title="Item not found"
+        description="This item does not exist in your store."
+        action={<Link href="/items" className={buttonVariants({ variant: "outline" })}>Back to your items</Link>}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -31,7 +45,7 @@ function EditItem({ id, slug }: { id: string; slug: string }) {
         </div>
         <div className="flex items-center gap-2">
           {item.data.status === "LIVE" ? (
-            <a href={`${publicEnv.storefrontUrl}/s/${slug}/items/${id}`} target="_blank" rel="noreferrer" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+            <a href={`${publicEnv.storefrontUrl}/s/${store.slug}/items/${id}`} target="_blank" rel="noreferrer" className={buttonVariants({ variant: "ghost", size: "sm" })}>
               View in storefront <ExternalLink />
             </a>
           ) : null}
@@ -52,5 +66,5 @@ function EditItem({ id, slug }: { id: string; slug: string }) {
 
 export default function EditItemPage({ params }: PageProps<"/items/[id]">) {
   const { id } = use(params);
-  return <RequireStore>{(store) => <EditItem id={id} slug={store.slug} />}</RequireStore>;
+  return <RequireStore>{(store) => <EditItem id={id} store={store} />}</RequireStore>;
 }

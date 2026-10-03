@@ -4,16 +4,34 @@ import { IMAGE_TYPES, type ImageType, MAX_IMAGE_BYTES, uploadImage } from "@loot
 import { cn, Progress } from "@lootvault/web-shared/ui";
 import { errorMessage, useApi } from "@lootvault/web-shared/wallet";
 import { ImagePlus } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 const isImageType = (type: string): type is ImageType => IMAGE_TYPES.some((allowed) => allowed === type);
 
 /** Picks an image and uploads it to S3 through a presigned POST, showing progress. Reports the public URL. */
-export function ImageUpload({ value, onChange, label, invalid }: { value: string; onChange: (url: string) => void; label: string; invalid?: boolean }) {
+export function ImageUpload({
+  value,
+  onChange,
+  label,
+  invalid,
+  onUploadingChange,
+}: {
+  value: string;
+  onChange: (url: string) => void;
+  label: string;
+  invalid?: boolean;
+  /** Called with true while an upload is in progress, so the form around it can hold its submit button. */
+  onUploadingChange?: (uploading: boolean) => void;
+}) {
   const api = useApi();
   const inputId = useId();
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const uploading = progress !== null;
+
+  useEffect(() => {
+    onUploadingChange?.(uploading);
+  }, [uploading, onUploadingChange]);
 
   async function upload(file: File) {
     setError(null);
@@ -53,14 +71,14 @@ export function ImageUpload({ value, onChange, label, invalid }: { value: string
         type="file"
         accept={IMAGE_TYPES.join(",")}
         className="sr-only"
-        disabled={progress !== null}
+        disabled={uploading}
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) void upload(file);
           event.target.value = "";
         }}
       />
-      {progress !== null ? (
+      {uploading ? (
         <div className="flex max-w-56 items-center gap-2 text-xs text-muted-foreground">
           <Progress value={progress} /> {progress}%
         </div>

@@ -22,6 +22,7 @@ export function ItemForm({ item, onSaved }: { item?: Item; onSaved: (item: Item)
   const [supply, setSupply] = useState(String(item?.supply ?? 10));
   const [price, setPrice] = useState(item ? weiToEthInput(item.priceWei) : "");
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [uploading, setUploading] = useState(false);
   const supplyLocked = (item?.sold ?? 0) > 0;
 
   const save = useMutation({
@@ -56,7 +57,7 @@ export function ItemForm({ item, onSaved }: { item?: Item; onSaved: (item: Item)
     <form onSubmit={submit} className="grid gap-8 md:grid-cols-[16rem_1fr]">
       <div className="flex flex-col gap-1.5">
         <span className="text-sm font-medium">Image</span>
-        <ImageUpload value={imageUrl} onChange={setImageUrl} label="Upload artwork" invalid={errors.image !== undefined} />
+        <ImageUpload value={imageUrl} onChange={setImageUrl} label="Upload artwork" invalid={errors.image !== undefined} onUploadingChange={setUploading} />
         {errors.image ? <p className="text-xs text-destructive">{errors.image}</p> : null}
       </div>
       <div className="flex flex-col gap-4">
@@ -89,8 +90,8 @@ export function ItemForm({ item, onSaved }: { item?: Item; onSaved: (item: Item)
           </Field>
         </div>
         <div className="flex justify-end">
-          <Button type="submit" disabled={save.isPending}>
-            {save.isPending ? "Saving…" : item ? "Save changes" : "Create draft"}
+          <Button type="submit" disabled={save.isPending || uploading}>
+            {save.isPending ? "Saving…" : uploading ? "Uploading image…" : item ? "Save changes" : "Create draft"}
           </Button>
         </div>
       </div>
