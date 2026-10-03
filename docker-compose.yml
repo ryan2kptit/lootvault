@@ -4,7 +4,7 @@ services:
   mongo:
     image: mongo:7.0
     command: ["--replSet", "rs0", "--bind_ip_all", "--quiet"]
-    ports: ["27017:27017"]
+    ports: ["127.0.0.1:27017:27017"]
     volumes: ["mongo-data:/data/db"]
     healthcheck:
       # Initiates the single-node replica set on first boot, then reports PRIMARY.
@@ -23,7 +23,7 @@ services:
     # moto: open-source S3/SNS/SQS emulator. LocalStack's free image needs an auth token since 2026-03.
     # Pinned by digest (moto 5.2.3.dev0). NOTE: moto state is in-memory; `npm run bootstrap` re-creates it.
     image: motoserver/moto@sha256:91fd602a21f49cf9eb82fdf474015a3c131d40104c8297ea6a2ca920708ae32c
-    ports: ["4566:5000"]
+    ports: ["127.0.0.1:4566:5000"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/')"]
       interval: 3s
@@ -35,7 +35,7 @@ services:
     image: lootvault-anvil:1.5.1
     # --state persists the whole chain (contracts, balances, blocks) across restarts.
     command: ["--host", "0.0.0.0", "--chain-id", "31337", "--state", "/data/anvil-state.json", "--state-interval", "5"]
-    ports: ["8545:8545"]
+    ports: ["127.0.0.1:8545:8545"]
     volumes: ["chain-data:/data"]
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8545'"]
