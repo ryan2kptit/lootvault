@@ -81,4 +81,36 @@ describe("CatalogEventsHandler", () => {
     await handler.handle(envelope("chain.TransferSingle", { operator: BUYER, from: ZERO, to: BUYER, id: "12345", value: "1" }));
     expect(await holdings.countDocuments({ tokenId: { $in: [outOfRange, "12345"] } })).toBe(0);
   });
+
+  describe("robustness", () => {
+    const ALICE = "0x14dc79964da2c08b23698b3d3cc7ca32193d9955";
+    const BOB = "0x23618e81e3f5cdf7f54c3d65f7fbc0abf5b21e8f";
+
+    it("converges when a transfer is delivered before the mint that funds it", async () => {
+      const soldBefore = (await items.findById(itemId))?.sold ?? 0;
+      await handler.handle(envelope("chain.TransferSingle", { operator: ALICE, from: ALICE, to: BOB, id: tokenId, value: "1" }));
+      await handler.handle(envelope("chain.TransferSingle", { operator: ALICE, from: ZERO, to: ALICE, id: tokenId, value: "2" }));
+
+      expect((await holdings.findById(`${ALICE}:${tokenId}`))?.balance).toBe(1);
+      expect((await holdings.findById(`${BOB}:${tokenId}`))?.balance).toBe(1);
+      expect((await items.findById(itemId))?.sold).toBe(soldBefore + 2);
+    });
+
+    it("debits the burner on a burn without creating a zero-address holding or touching sold", async () => {
+      const soldBefore = (await items.findById(itemId))?.sold;
+      await handler.handle(envelope("chain.TransferSingle", { operator: BOB, from: BOB, to: ZERO, id: tokenId, value: "1" }));
+
+      expect((await holdings.findById(`${BOB}:${tokenId}`))?.balance).toBe(0);
+      expect(await holdings.countDocuments({ address: ZERO })).toBe(0);
+      expect((await items.findById(itemId))?.sold).toBe(soldBefore);
+    });
+
+    it("treats a malformed tokenId as a no-op instead of throwing", async () => {
+      const before = await holdings.countDocuments({});
+      await expect(
+        handler.handle(envelope("chain.TransferSingle", { operator: BUYER, from: ZERO, to: BUYER, id: "abc", value: "1" })),
+      ).resolves.toBeUndefined();
+      expect(await holdings.countDocuments({})).toBe(before);
+    });
+  });
 });

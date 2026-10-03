@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { InboxService } from "@lootvault/nest-common";
 import {
@@ -22,6 +22,8 @@ import { Item } from "../items/item.schema";
  */
 @Injectable()
 export class CatalogEventsHandler {
+  private readonly logger = new Logger(CatalogEventsHandler.name);
+
   constructor(
     private readonly inbox: InboxService,
     @InjectModel(Item.name) private readonly items: Model<Item>,
@@ -48,6 +50,10 @@ export class CatalogEventsHandler {
 
   private async onTransfer(event: TransferSingleEvent, session: ClientSession): Promise<void> {
     const { from, to, id: tokenId, value } = event.data;
+    if (!/^\d+$/.test(tokenId) || !/^\d+$/.test(value)) {
+      this.logger.warn(`Ignoring ${event.id}: non-decimal tokenId or value`);
+      return; // a no-op the inbox still records, so it is never redelivered as a poison message
+    }
     if (!isItemTokenId(BigInt(tokenId))) return;
     const itemId = itemIdFromTokenId(BigInt(tokenId));
     if (!(await this.items.exists({ _id: itemId }).session(session))) return;
@@ -56,14 +62,22 @@ export class CatalogEventsHandler {
     if (from === zeroAddress) {
       await this.items.updateOne({ _id: itemId }, { $inc: { sold: amount } }, { session });
     } else {
-      await this.holdings.updateOne({ _id: holdingId(from, tokenId) }, { $inc: { balance: -amount } }, { session });
+      await this.adjustBalance(from, tokenId, itemId, -amount, session);
     }
     if (to !== zeroAddress) {
-      await this.holdings.updateOne(
-        { _id: holdingId(to, tokenId) },
-        { $inc: { balance: amount }, $setOnInsert: { address: to, tokenId, itemId } },
-        { upsert: true, session },
-      );
+      await this.adjustBalance(to, tokenId, itemId, amount, session);
     }
+  }
+
+  /**
+   * catalog-q is a standard queue, so a transfer can arrive before the mint that funds it. Upserting on
+   * both sides keeps balances order-independent ($inc commutes); the holdings query filters balance > 0.
+   */
+  private async adjustBalance(address: string, tokenId: string, itemId: string, delta: number, session: ClientSession): Promise<void> {
+    await this.holdings.updateOne(
+      { _id: holdingId(address, tokenId) },
+      { $inc: { balance: delta }, $setOnInsert: { address, tokenId, itemId } },
+      { upsert: true, session },
+    );
   }
 }
