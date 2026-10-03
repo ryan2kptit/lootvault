@@ -13,6 +13,7 @@
     "postinstall": "npm run build -w @lootvault/shared",
     "build:packages": "npm run build -w @lootvault/shared",
     "test:shared": "npm test -w @lootvault/shared",
+    "test:contracts": "npm test -w @lootvault/contracts",
     "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
     "doctor": "node scripts/doctor.mjs",
     "infra:up": "docker compose up -d --build --wait",
