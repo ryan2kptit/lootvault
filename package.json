@@ -19,6 +19,7 @@
     "demo:smoke": "node scripts/demo-smoke.mjs",
     "demo:race": "node scripts/demo-race.mjs",
     "doctor": "node scripts/doctor.mjs",
+    "dlq:redrive": "node scripts/dlq-redrive.mjs",
     "test": "npm run test:scripts && npm run test:shared && npm run typecheck && npm run test:services && npm run test:contracts",
     "typecheck": "npm run typecheck -w @lootvault/nest-common -w @lootvault/auth-svc -w @lootvault/catalog-svc -w @lootvault/order-svc -w @lootvault/indexer-svc",
     "test:scripts": "node --test \"scripts/**/*.test.mjs\"",

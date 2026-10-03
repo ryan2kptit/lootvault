@@ -81,7 +81,8 @@ Local wallets are anvil's public test accounts. `scripts/lib/accounts.mjs` lists
 | `npm test` | All suites: scripts, shared, the 5 NestJS packages, and the contract (Hardhat) |
 | `npm run build` | Builds the packages and all 4 services |
 | `npm run bootstrap` | Merges new keys from `.env.example` into `.env`, creates the S3, SNS and SQS resources, and deploys the contract unless it is already on-chain (`deploy:local -- --force` redeploys) |
-| `npm run doctor` | Checks Node, `.env`, Mongo, moto, chain, contract, signer key and AWS resources, and reports whether each service is up |
+| `npm run doctor` | Checks Node, `.env`, Mongo, moto, chain, contract, signer key, AWS resources and that the dead-letter queues are empty, and reports whether each service is up |
+| `npm run dlq:redrive` | Moves every message from the catalog and order dead-letter queues back to their source queues (after you fixed what made a consumer fail) |
 | `npm run infra:reset` | Wipes all local state (volumes). Afterwards run `infra:up`, `bootstrap`, `dev` and `seed` again |
 
 ## Layout
@@ -106,7 +107,8 @@ These are deliberate MVP trade-offs, each with a guard in place:
 ## Troubleshooting
 
 - **`AWS resources` fails in `npm run doctor`.** moto keeps its state in memory and loses it when its container restarts. Run `npm run bootstrap`, then `npm run seed -- --force` if you need the seed images back.
-- **`LootVault1155 deployed` fails.** The chain volume was wiped. Run `npm run bootstrap`.
+- **`LootVault1155 deployed` fails.** The chain volume was wiped. Run `npm run infra:reset`, then the full bootstrap again (`infra:up`, `bootstrap`, `dev`, `seed`). Running only `bootstrap` redeploys the contract on the new chain, but the indexer cursor and the Mongo projections (catalog sold counts and holdings, orders) still belong to the old chain, so the new chain would never be indexed. The indexer logs `cursor N is ahead of chain head M: the chain was reset` when it sees this.
+- **`Dead-letter queues empty` fails.** A consumer gave up on a message after 5 receives. Read the catalog or order service log for the error, fix the cause, then run `npm run dlq:redrive` to put the messages back on their queues. Handlers are idempotent (inbox), so redriving is safe.
 - **anvil's image is built locally** from Debian and GitHub Releases rather than pulled from ghcr.io, which returned 403 in some environments.
 
 The design spec is in `docs/superpowers/specs/2026-10-03-lootvault-design.md`.

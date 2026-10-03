@@ -1,4 +1,4 @@
-import type { INestApplication } from "@nestjs/common";
+import { type INestApplication, Logger } from "@nestjs/common";
 import { getModelToken } from "@nestjs/mongoose";
 import { EVENT_PUBLISHER, type EventPublisher } from "@lootvault/nest-common";
 import { createTestApp, startMongo } from "@lootvault/nest-common/testing";
@@ -152,6 +152,39 @@ describe("IndexerService", () => {
     };
     await indexer.tick();
     expect(await indexer.lastBlock()).toBe(15);
+  });
+
+  it("warns, at most once a minute, when the stored cursor is ahead of the chain head (the chain was reset)", async () => {
+    chain.head = 30n;
+    chain.logs = [];
+    await boot({ START_BLOCK: "1", BATCH_SIZE: "500", CONFIRMATIONS: "0" });
+    await indexer.tick(); // cursor 30
+    const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      chain.head = 4n; // anvil restarted with a fresh volume
+      expect(await indexer.tick()).toBeNull();
+      expect(await indexer.tick()).toBeNull();
+      const stale = warn.mock.calls.filter(([message]) => String(message).includes("ahead of chain head"));
+      expect(stale).toEqual([
+        ["cursor 30 is ahead of chain head 4: the chain was reset; run npm run infra:reset or drop the indexer DB"],
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("measures the stale-cursor warning against the confirmed head", async () => {
+    chain.head = 10n;
+    chain.logs = [];
+    await boot({ START_BLOCK: "1", BATCH_SIZE: "500", CONFIRMATIONS: "3" });
+    await indexer.tick(); // cursor 7
+    const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      expect(await indexer.tick()).toBeNull(); // normal wait for confirmations: cursor == safe head
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("catches up within a time budget", async () => {

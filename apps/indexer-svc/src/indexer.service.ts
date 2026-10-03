@@ -8,6 +8,9 @@ import { CHAIN_SOURCE, type ChainSource } from "./chain-source";
 import type { IndexerConfig } from "./config";
 import { Cursor } from "./cursor.schema";
 
+/** The "chain was reset" warning repeats at most this often, so a quiet loop does not spam the log. */
+const STALE_CURSOR_WARN_INTERVAL_MS = 60_000;
+
 export interface TickResult {
   fromBlock: number;
   toBlock: number;
@@ -24,6 +27,7 @@ export interface TickResult {
 @Injectable()
 export class IndexerService {
   private readonly logger = new Logger(IndexerService.name);
+  private lastStaleWarning = 0;
 
   constructor(
     @InjectModel(Cursor.name) private readonly cursors: Model<Cursor>,
@@ -53,6 +57,7 @@ export class IndexerService {
     const head = await this.chain.getHead();
     const fromBlock = BigInt(previous) + 1n;
     const safeHead = head - BigInt(this.config.CONFIRMATIONS);
+    this.warnIfCursorAhead(previous, head, safeHead);
     const batchEnd = fromBlock + BigInt(this.config.BATCH_SIZE) - 1n;
     const toBlock = safeHead < batchEnd ? safeHead : batchEnd;
     if (toBlock < fromBlock) return null;
@@ -74,6 +79,16 @@ export class IndexerService {
       this.logger.warn(`Cursor moved by another instance while processing ${fromBlock}-${toBlock}; its events were republished`);
     }
     return { fromBlock: Number(fromBlock), toBlock: Number(toBlock), published: events.length };
+  }
+
+  /**
+   * A cursor beyond the confirmed head means the chain restarted with a fresh volume: the stored cursor
+   * and the projections built from the old chain no longer match it, and the indexer would idle silently.
+   */
+  private warnIfCursorAhead(cursor: number, head: bigint, safeHead: bigint): void {
+    if (BigInt(cursor) <= safeHead || Date.now() - this.lastStaleWarning < STALE_CURSOR_WARN_INTERVAL_MS) return;
+    this.lastStaleWarning = Date.now();
+    this.logger.warn(`cursor ${cursor} is ahead of chain head ${head}: the chain was reset; run npm run infra:reset or drop the indexer DB`);
   }
 
   /** Runs ticks until caught up or `budgetMs` elapses (a scheduled Lambda's loop). */

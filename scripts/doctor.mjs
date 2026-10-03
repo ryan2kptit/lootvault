@@ -11,6 +11,7 @@ import { lootVault1155Abi } from "@lootvault/shared";
 import { decodeFunctionResult, encodeFunctionData } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
+import { deadLetterQueueUrl } from "./lib/dlq.mjs";
 import { readEnv } from "./lib/env-file.mjs";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -159,6 +160,21 @@ await check("AWS resources (bucket, topic, queues)", async () => {
   }
   return process.env.MEDIA_BUCKET;
 });
+
+await check("Dead-letter queues empty", () =>
+  reachable(async () => {
+    const sqs = new SQSClient({ region: process.env.AWS_REGION, endpoint: process.env.AWS_ENDPOINT_URL });
+    const stuck = [];
+    for (const [label, source] of [["catalog", process.env.CATALOG_QUEUE_URL], ["order", process.env.ORDER_QUEUE_URL]]) {
+      const url = await deadLetterQueueUrl(sqs, source);
+      const { Attributes } = await sqs.send(new GetQueueAttributesCommand({ QueueUrl: url, AttributeNames: ["ApproximateNumberOfMessages"] }));
+      const count = Number(Attributes?.ApproximateNumberOfMessages ?? 0);
+      if (count > 0) stuck.push(`${label} DLQ has ${count}`);
+    }
+    if (stuck.length > 0) throw new Error(`${stuck.join(", ")} message(s) a consumer gave up on; fix the cause, then run \`npm run dlq:redrive\``);
+    return "catalog and order";
+  }),
+);
 
 // Services are optional for doctor (it also runs before `npm run dev`), so they only inform.
 const services = { auth: process.env.AUTH_PORT, catalog: process.env.CATALOG_PORT, orders: process.env.ORDER_PORT, indexer: process.env.INDEXER_PORT };
