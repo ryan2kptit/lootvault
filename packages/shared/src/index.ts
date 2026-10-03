@@ -1,3 +1,4 @@
+export * from "./abi/lootVault1155";
 export * from "./eip712";
 export * from "./events";
 export * from "./ids";

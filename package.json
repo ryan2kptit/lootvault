@@ -16,6 +16,7 @@
     "test:contracts": "npm test -w @lootvault/contracts",
     "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
     "doctor": "node scripts/doctor.mjs",
+    "deploy:local": "npm run deploy -w @lootvault/contracts -- --network localhost && node scripts/sync-deployment-env.mjs localhost",
     "infra:up": "docker compose up -d --build --wait",
     "infra:down": "docker compose down",
     "infra:reset": "docker compose down -v"
