@@ -88,6 +88,35 @@ describe("cart store", () => {
     expect(otherStore.getState().lines).toEqual([]);
   });
 
+  it("ignores non-numeric quantities instead of storing NaN", () => {
+    cart.getState().add(drake, 2, 10);
+    cart.getState().add(drake, Number.NaN, 10);
+    cart.getState().add(lynx, Number.NaN, 10);
+    cart.getState().setQuantity("a1", Number.NaN);
+    expect(cart.getState().lines.every((l) => Number.isInteger(l.quantity) && l.quantity >= 1)).toBe(true);
+    expect(cartTotalWei(cart.getState().lines)).toBeGreaterThan(0n);
+  });
+
+  it("floors fractional quantities", () => {
+    cart.getState().add(drake, 2.9, 10);
+    expect(cart.getState().lines[0].quantity).toBe(2);
+  });
+
+  it("drops persisted lines whose quantity is not a positive integer when rehydrating", async () => {
+    const line = { name: "x", imageUrl: "http://img/x.png", priceWei: "1" };
+    const lines = [
+      { ...line, itemId: "ok", quantity: 2 },
+      { ...line, itemId: "null", quantity: null },
+      { ...line, itemId: "zero", quantity: 0 },
+      { ...line, itemId: "fraction", quantity: 1.5 },
+    ];
+    storage.data.set("cart:pixel-legends", JSON.stringify({ state: { lines }, version: 0 }));
+    const reloaded = createCartStore("pixel-legends", storage);
+    await reloaded.persist.rehydrate();
+    expect(reloaded.getState().lines.map((l) => l.itemId)).toEqual(["ok"]);
+    expect(cartTotalWei(reloaded.getState().lines)).toBe(2n);
+  });
+
   it("totals price x quantity in wei and counts copies", () => {
     cart.getState().add(drake, 2, 10);
     cart.getState().add(lynx, 1, 10);

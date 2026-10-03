@@ -28,7 +28,15 @@ export interface CartState {
   clear: () => void;
 }
 
-const clampQuantity = (quantity: number, max = MAX_LINE_QUANTITY) => Math.max(0, Math.min(Math.floor(quantity), max, MAX_LINE_QUANTITY));
+/** Whole copies between 0 and the limit; anything that is not a finite number counts as 0. */
+const clampQuantity = (quantity: number, max = MAX_LINE_QUANTITY) =>
+  Number.isFinite(quantity) && Number.isFinite(max) ? Math.max(0, Math.min(Math.floor(quantity), Math.floor(max), MAX_LINE_QUANTITY)) : 0;
+
+/** The valid lines of a persisted cart. Storage is untrusted: a corrupt quantity (null, NaN, fraction) must not reach the total. */
+function restoreLines(persisted: unknown): CartLine[] {
+  const lines = typeof persisted === "object" && persisted !== null && "lines" in persisted ? persisted.lines : [];
+  return Array.isArray(lines) ? lines.filter((line: CartLine) => Number.isInteger(line?.quantity) && line.quantity >= 1) : [];
+}
 
 /** One cart per store, persisted under `cart:{slug}`. `storage` is injectable for tests. */
 export function createCartStore(slug: string, storage?: StateStorage) {
@@ -38,6 +46,7 @@ export function createCartStore(slug: string, storage?: StateStorage) {
         lines: [],
         add: (line, quantity, available) =>
           set(({ lines }) => {
+            if (!Number.isFinite(quantity)) return { lines };
             const existing = lines.find((l) => l.itemId === line.itemId);
             const next = clampQuantity((existing?.quantity ?? 0) + quantity, available);
             if (existing) {
@@ -63,6 +72,7 @@ export function createCartStore(slug: string, storage?: StateStorage) {
         name: `cart:${slug}`,
         storage: createJSONStorage(() => storage ?? localStorage),
         partialize: ({ lines }) => ({ lines }),
+        merge: (persisted, current) => ({ ...current, lines: restoreLines(persisted) }),
         // Rehydrated in useCart after mount, so server and first client render agree (empty cart).
         skipHydration: true,
       },

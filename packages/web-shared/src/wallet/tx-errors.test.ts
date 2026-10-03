@@ -46,6 +46,12 @@ describe("describeTxError", () => {
     expect(describeTxError(error)).toEqual({ code: "UserRejected", message: "You cancelled the request in your wallet." });
   });
 
+  it("gives a fixed message for a revert the app does not know, never raw selector data", () => {
+    const unknown = revert("0xdeadbeef");
+    expect(describeTxError(unknown)).toEqual({ code: "Unknown", message: "The transaction was rejected by the contract." });
+    expect(describeTxError(unknown).message).not.toContain("0xdeadbeef");
+  });
+
   it("falls back to viem's short message, or the plain message", () => {
     const unknown = purchaseFailure(new BaseError("boom"));
     expect(describeTxError(unknown)).toEqual({ code: "Unknown", message: unknown.shortMessage });

@@ -39,6 +39,7 @@ export function describeTxError(error: unknown): TxError {
   if (revert instanceof ContractFunctionRevertedError) {
     const name = revert.data?.errorName;
     if (name && isKnownRevert(name)) return { code: name, message: REVERT_MESSAGES[name] };
+    return { code: "Unknown", message: "The transaction was rejected by the contract." };
   }
   return { code: "Unknown", message: error.shortMessage };
 }

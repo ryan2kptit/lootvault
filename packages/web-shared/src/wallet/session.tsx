@@ -1,13 +1,16 @@
 "use client";
 
-import { createContext, type ReactNode, useContext, useEffect, useState, useSyncExternalStore } from "react";
-import { useConnection, useConnectionEffect } from "wagmi";
+import { useQueryClient } from "@tanstack/react-query";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type Config, useConfig, useConnection } from "wagmi";
+import { getConnection } from "wagmi/actions";
 import { useStore } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 
 import { type Api, createApi, type Session } from "../api";
 import { publicEnv } from "../env";
+import { isLive, tokenFor } from "./session-token";
 
 export type AppName = "studio" | "storefront";
 
@@ -38,16 +41,15 @@ function createSessionStore(app: AppName) {
 
 type SessionStore = ReturnType<typeof createSessionStore>;
 
-const isLive = (session: Session | null): session is Session => session !== null && Date.parse(session.expiresAt) > Date.now();
-
-/** Browser API client: same-origin `/api/*` (rewritten by Next to the services), with the session's bearer token. */
-function createBrowserApi(store: SessionStore): Api {
+/**
+ * Browser API client: same-origin `/api/*` (rewritten by Next to the services), with the session's bearer token.
+ * The token is read at request time and sent only while the wallet it was issued to is the connected one, so a
+ * request fired during an account switch (before the session is dropped) or after a reload without a wallet is anonymous.
+ */
+function createBrowserApi(store: SessionStore, wagmiConfig: Config): Api {
   return createApi({
     baseUrl: (service) => `${publicEnv.apiUrl}/${service}`,
-    getToken: () => {
-      const { session } = store.getState();
-      return isLive(session) ? session.accessToken : null;
-    },
+    getToken: () => tokenFor(store.getState().session, getConnection(wagmiConfig).address) ?? null,
     onUnauthorized: () => store.getState().clearSession(),
   });
 }
@@ -55,9 +57,11 @@ function createBrowserApi(store: SessionStore): Api {
 const SessionContext = createContext<{ store: SessionStore; api: Api } | null>(null);
 
 export function SessionProvider({ app, children }: { app: AppName; children: ReactNode }) {
+  const wagmiConfig = useConfig();
+  const queryClient = useQueryClient();
   const [value] = useState(() => {
     const store = createSessionStore(app);
-    return { store, api: createBrowserApi(store) };
+    return { store, api: createBrowserApi(store, wagmiConfig) };
   });
   const { address, status } = useConnection();
 
@@ -65,8 +69,16 @@ export function SessionProvider({ app, children }: { app: AppName; children: Rea
     void value.store.persist.rehydrate();
   }, [value.store]);
 
-  // A session belongs to one wallet: drop it when the wallet disconnects or switches account.
-  useConnectionEffect({ onDisconnect: () => value.store.getState().clearSession() });
+  // A session and the data fetched with it belong to one wallet: drop both when the wallet disconnects or switches account.
+  const previousAddress = useRef(address);
+  useEffect(() => {
+    if (previousAddress.current !== undefined && previousAddress.current !== address) {
+      value.store.getState().clearSession();
+      queryClient.removeQueries();
+    }
+    previousAddress.current = address;
+  }, [address, queryClient, value.store]);
+
   const session = useStore(value.store, (state) => state.session);
   useEffect(() => {
     if (status === "connected" && session && session.address !== address.toLowerCase()) value.store.getState().clearSession();
@@ -102,6 +114,12 @@ export function useSession() {
   const session = useStore(store, (state) => state.session);
   const connection = useConnection();
   const hydrated = useHydrated();
+  const queryClient = useQueryClient();
+  const clearSession = useStore(store, (state) => state.clearSession);
+  const signOut = useCallback(() => {
+    clearSession();
+    queryClient.removeQueries();
+  }, [clearSession, queryClient]);
   const address = hydrated ? connection.address : undefined;
   const status = hydrated ? connection.status : "disconnected";
   const signedIn = status === "connected" && address !== undefined && isLive(session) && session.address === address.toLowerCase();
@@ -111,6 +129,6 @@ export function useSession() {
     walletStatus: status,
     session: signedIn ? session : null,
     setSession: useStore(store, (state) => state.setSession),
-    signOut: useStore(store, (state) => state.clearSession),
+    signOut,
   };
 }

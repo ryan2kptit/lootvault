@@ -3,7 +3,7 @@
 import { ChevronDown, LogOut, Wallet } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { type Connector, useConnect, useConnectors, useDisconnect } from "wagmi";
+import { type Connector, useConnect, useConnection, useConnectors, useDisconnect } from "wagmi";
 
 import { shortAddress } from "../format";
 import { Button } from "../ui/button";
@@ -35,6 +35,7 @@ function RoleSelect({ value, onChange }: { value: DemoRoleId; onChange: (role: D
 /** Header wallet control: connect (browser or demo wallet), sign in, switch demo role, sign out, disconnect. */
 export function WalletButton() {
   const { address, walletStatus, session, signOut } = useSession();
+  const { connector: activeConnector } = useConnection();
   const login = useSiweLogin();
   const connectors = useConnectors();
   const { mutate: connect, isPending: connecting } = useConnect({ mutation: { onError: (error) => toast.error(errorMessage(error)) } });
@@ -98,7 +99,7 @@ export function WalletButton() {
         <div className="absolute right-0 top-full z-50 mt-2 flex w-72 flex-col gap-3 rounded-xl border bg-card p-3 shadow-lg">
           {address ? (
             <>
-              {role && demo ? (
+              {role && demo && activeConnector?.id === DEMO_WALLET_ID ? (
                 <div className="flex flex-col gap-1.5">
                   <p className="text-sm font-medium">Demo role</p>
                   <RoleSelect value={role.id} onChange={(id) => void demo.selectRole(id)} />
