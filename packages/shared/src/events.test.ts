@@ -8,7 +8,11 @@ describe("events", () => {
     assert.equal(eventId(31337, "0xABCDEF", 3), "31337:0xabcdef:3");
   });
 
-  it("exposes the two chain event types", () => {
-    assert.deepEqual(EVENT_TYPES, { Purchased: "chain.Purchased", TransferSingle: "chain.TransferSingle" });
+  it("exposes the three chain event types", () => {
+    assert.deepEqual(EVENT_TYPES, {
+      Purchased: "chain.Purchased",
+      TransferSingle: "chain.TransferSingle",
+      EditionLocked: "chain.EditionLocked",
+    });
   });
 });

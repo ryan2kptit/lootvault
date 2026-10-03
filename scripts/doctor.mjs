@@ -4,6 +4,16 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { HeadBucketCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetTopicAttributesCommand, SNSClient } from "@aws-sdk/client-sns";
+import { GetQueueAttributesCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { lootVault1155Abi } from "@lootvault/shared";
+import { decodeFunctionResult, encodeFunctionData } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+
+import { deadLetterQueueUrl } from "./lib/dlq.mjs";
+import { readEnv } from "./lib/env-file.mjs";
+
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const envPath = fileURLToPath(new URL("../.env", import.meta.url));
 const REQUEST_TIMEOUT_MS = 5000;
@@ -115,6 +125,67 @@ await check("LootVault1155 deployed", () =>
     return address;
   }),
 );
+
+await check(".env has every key from .env.example", () => {
+  const missing = Object.keys(readEnv(new URL("../.env.example", import.meta.url))).filter((key) => !(key in process.env));
+  if (missing.length > 0) throw new Error(`missing ${missing.join(", ")}; run \`npm run bootstrap\``);
+  return undefined;
+});
+
+await check("Platform signer key matches the contract", () =>
+  reachable(async () => {
+    const expected = privateKeyToAccount(process.env.PLATFORM_SIGNER_KEY).address;
+    const data = encodeFunctionData({ abi: lootVault1155Abi, functionName: "platformSigner" });
+    const result = await rpc("eth_call", [{ to: process.env.CONTRACT_ADDRESS, data }, "latest"]);
+    const onChain = decodeFunctionResult({ abi: lootVault1155Abi, functionName: "platformSigner", data: result });
+    if (onChain.toLowerCase() !== expected.toLowerCase()) {
+      throw new Error(`contract trusts ${onChain} but PLATFORM_SIGNER_KEY is ${expected}; every purchase would revert`);
+    }
+    return expected;
+  }),
+);
+
+await check("AWS resources (bucket, topic, queues)", async () => {
+  const aws = { region: process.env.AWS_REGION, endpoint: process.env.AWS_ENDPOINT_URL };
+  const hint = "run `npm run bootstrap` (moto forgets everything when its container restarts)";
+  try {
+    await new S3Client({ ...aws, forcePathStyle: true }).send(new HeadBucketCommand({ Bucket: process.env.MEDIA_BUCKET }));
+    await new SNSClient(aws).send(new GetTopicAttributesCommand({ TopicArn: process.env.SNS_TOPIC_ARN }));
+    const sqs = new SQSClient(aws);
+    for (const url of [process.env.CATALOG_QUEUE_URL, process.env.ORDER_QUEUE_URL]) {
+      await sqs.send(new GetQueueAttributesCommand({ QueueUrl: url, AttributeNames: ["QueueArn"] }));
+    }
+  } catch (error) {
+    throw new Error(`${error.name ?? "error"}: ${error.message}; ${hint}`);
+  }
+  return process.env.MEDIA_BUCKET;
+});
+
+await check("Dead-letter queues empty", () =>
+  reachable(async () => {
+    const sqs = new SQSClient({ region: process.env.AWS_REGION, endpoint: process.env.AWS_ENDPOINT_URL });
+    const stuck = [];
+    for (const [label, source] of [["catalog", process.env.CATALOG_QUEUE_URL], ["order", process.env.ORDER_QUEUE_URL]]) {
+      const url = await deadLetterQueueUrl(sqs, source);
+      const { Attributes } = await sqs.send(new GetQueueAttributesCommand({ QueueUrl: url, AttributeNames: ["ApproximateNumberOfMessages"] }));
+      const count = Number(Attributes?.ApproximateNumberOfMessages ?? 0);
+      if (count > 0) stuck.push(`${label} DLQ has ${count}`);
+    }
+    if (stuck.length > 0) throw new Error(`${stuck.join(", ")} message(s) a consumer gave up on; fix the cause, then run \`npm run dlq:redrive\``);
+    return "catalog and order";
+  }),
+);
+
+// Services are optional for doctor (it also runs before `npm run dev`), so they only inform.
+const services = { auth: process.env.AUTH_PORT, catalog: process.env.CATALOG_PORT, orders: process.env.ORDER_PORT, indexer: process.env.INDEXER_PORT };
+for (const [name, port] of Object.entries(services)) {
+  try {
+    const response = await fetch(`http://localhost:${port}/${name}/health`, { signal: AbortSignal.timeout(2000) });
+    console.log(`${response.ok ? "✔" : "○"} ${name} service on :${port}${response.ok ? "" : ` — HTTP ${response.status}`}`);
+  } catch {
+    console.log(`○ ${name} service on :${port} — not running (start everything with \`npm run dev\`)`);
+  }
+}
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

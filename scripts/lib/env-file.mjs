@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 
 /**
  * Set KEY=value pairs in a dotenv file, replacing existing keys in place and
@@ -15,4 +16,13 @@ export function upsertEnv(fileUrl, values) {
     else lines.push(`${key}=${value}`);
   }
   writeFileSync(fileUrl, `${lines.join("\n")}\n`);
+}
+
+/**
+ * Parsed dotenv file (empty object when missing).
+ * @param {URL} fileUrl
+ * @returns {Record<string, string>}
+ */
+export function readEnv(fileUrl) {
+  return existsSync(fileUrl) ? parseEnv(readFileSync(fileUrl, "utf8")) : {};
 }
