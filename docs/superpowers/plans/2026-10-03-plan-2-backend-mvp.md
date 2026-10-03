@@ -3583,7 +3583,7 @@ describe("CatalogEventsHandler", () => {
     const item = await request(app.getHttpServer())
       .post("/catalog/items")
       .set("authorization", auth)
-      .send({ name: "Evt Card", imageUrl: "http://media.test/a.png", supply: 3, priceWei: "100" })
+      .send({ name: "Evt Card", imageUrl: "http://media.test/media/a.png", supply: 3, priceWei: "100" })
       .expect(201);
     tokenId = item.body.tokenId;
     itemId = item.body.id;
