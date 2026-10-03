@@ -12,27 +12,41 @@
   "scripts": {
     "postinstall": "npm run build:packages",
     "build:packages": "npm run build -w @lootvault/shared && npm run build -w @lootvault/nest-common",
-    "test:shared": "npm test -w @lootvault/shared",
-    "test:contracts": "npm test -w @lootvault/contracts",
-    "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
+    "build": "npm run build:packages && npm run build -w @lootvault/auth-svc -w @lootvault/catalog-svc -w @lootvault/order-svc -w @lootvault/indexer-svc",
+    "bootstrap": "node scripts/ensure-env.mjs && node scripts/aws-init.mjs && node scripts/deploy-local.mjs",
+    "dev": "concurrently -k -n shared,common,auth,catalog,order,indexer -c gray,gray,blue,green,magenta,yellow \"npm run build:watch -w @lootvault/shared\" \"npm run build:watch -w @lootvault/nest-common\" \"npm run start:dev -w @lootvault/auth-svc\" \"npm run start:dev -w @lootvault/catalog-svc\" \"npm run start:dev -w @lootvault/order-svc\" \"npm run start:dev -w @lootvault/indexer-svc\"",
+    "seed": "node scripts/seed.mjs",
+    "demo:smoke": "node scripts/demo-smoke.mjs",
+    "demo:race": "node scripts/demo-race.mjs",
     "doctor": "node scripts/doctor.mjs",
+    "test": "npm run test:scripts && npm run test:shared && npm run typecheck && npm run test:services && npm run test:contracts",
+    "typecheck": "npm run typecheck -w @lootvault/nest-common -w @lootvault/auth-svc -w @lootvault/catalog-svc -w @lootvault/order-svc -w @lootvault/indexer-svc",
+    "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
+    "test:shared": "npm test -w @lootvault/shared",
+    "test:services": "npm test -w @lootvault/nest-common -w @lootvault/auth-svc -w @lootvault/catalog-svc -w @lootvault/order-svc -w @lootvault/indexer-svc",
+    "test:contracts": "npm test -w @lootvault/contracts",
+    "deploy:local": "node scripts/deploy-local.mjs",
     "infra:up": "docker compose up -d --build --wait",
     "infra:down": "docker compose down",
-    "infra:reset": "docker compose down -v",
-    "deploy:local": "npm run deploy -w @lootvault/contracts -- --network localhost && node scripts/sync-deployment-env.mjs localhost"
+    "infra:reset": "docker compose down -v"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1146.0",
+    "@aws-sdk/client-sns": "^3.1146.0",
+    "@aws-sdk/client-sqs": "^3.1146.0",
     "@nestjs/cli": "^11.0.24",
     "@nestjs/testing": "^11.2.7",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.15.0",
     "@types/supertest": "^7.2.1",
+    "concurrently": "^10.0.5",
     "jest": "^30.5.2",
     "mongodb-memory-server": "^11.3.0",
     "prettier": "^3.6.2",
     "supertest": "^7.3.1",
     "ts-jest": "^29.4.14",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "viem": "^2.57.2"
   }
 }

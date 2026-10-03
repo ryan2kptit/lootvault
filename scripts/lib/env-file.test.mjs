@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
 
-import { upsertEnv } from "./env-file.mjs";
+import { readEnv, upsertEnv } from "./env-file.mjs";
 
 const tmpEnv = (content) => {
   const file = join(mkdtempSync(join(tmpdir(), "envfile-")), ".env");
@@ -37,5 +37,16 @@ describe("upsertEnv", () => {
     upsertEnv(url, { A: "2" });
     upsertEnv(url, { A: "2" });
     assert.equal(readFileSync(url, "utf8"), "A=2\n");
+  });
+});
+
+describe("readEnv", () => {
+  it("parses a dotenv file", () => {
+    const url = tmpEnv("# comment\nA=1\nB=two words\n");
+    assert.deepEqual(readEnv(url), { A: "1", B: "two words" });
+  });
+
+  it("returns an empty object when the file is missing", () => {
+    assert.deepEqual(readEnv(tmpEnv(undefined)), {});
   });
 });
