@@ -12,8 +12,9 @@ export function PurchaseProgress({ state }: { state: PurchaseState }) {
     <div className="flex flex-col gap-4 rounded-xl border bg-muted/30 p-4">
       <TxStatusStepper
         steps={PURCHASE_STEPS}
-        current={state.step}
-        status={state.status === "submitted" ? "running" : state.status}
+        // The payment is sent but not confirmed: the steps before the confirmation are done, the confirmation itself is not running.
+        current={state.status === "submitted" ? state.step - 1 : state.step}
+        status={state.status === "submitted" ? "done" : state.status}
         error={state.status === "error" ? state.error : undefined}
       />
       {state.status === "submitted" ? (

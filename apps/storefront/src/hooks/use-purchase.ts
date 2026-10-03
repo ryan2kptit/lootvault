@@ -3,12 +3,13 @@
 import { checkoutFromWire, lootVault1155Abi } from "@lootvault/shared";
 import { type Api, isApiError, type Order } from "@lootvault/web-shared/api";
 import { type CartLine, type CartState, cartTotalWei, MAX_LINE_QUANTITY } from "@lootvault/web-shared/cart";
+import { publicEnv } from "@lootvault/web-shared/env";
 import { errorMessage, useApi } from "@lootvault/web-shared/wallet";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { Hex } from "viem";
 import { useConfig, useConnection } from "wagmi";
-import { simulateContract, waitForTransactionReceipt, writeContract } from "wagmi/actions";
+import { getConnection, simulateContract, switchChain, waitForTransactionReceipt, writeContract } from "wagmi/actions";
 
 export const PURCHASE_STEPS = ["Create order", "Confirm in your wallet", "Wait for the block", "Confirm payment", "Paid"] as const;
 /** Index of each step in PURCHASE_STEPS. */
@@ -19,6 +20,8 @@ const POLL_TIMEOUT_MS = 60_000;
 
 /** Query keys of the collection and order lists in /me; the address part is matched by prefix. */
 const ACCOUNT_QUERY_KEYS = [["holdings"], ["my-orders"]] as const;
+
+const WRONG_NETWORK_MESSAGE = "This store is on a different network than this app.";
 
 const UNCERTAIN_PAYMENT_MESSAGE = "The transaction did not go through — check My orders before trying again.";
 
@@ -106,7 +109,7 @@ interface PurchaseCallbacks {
 
 /**
  * The purchase flow behind TxStatusStepper: create the order (signed checkout) -> compare its total with the one
- * the buyer saw -> purchase() in the wallet -> wait for the receipt -> confirm with order-svc.
+ * the buyer saw -> purchase() in the wallet (on the checkout's chain) -> wait for the receipt -> confirm with order-svc.
  *
  * Once the transaction hash exists the flow can no longer end in a retryable error and the purchased lines are out
  * of the cart: a confirmation failure or timeout finishes as "submitted", and the hook refuses another purchase until
@@ -163,7 +166,15 @@ export function usePurchase({ cart, onPaid, onPending, onError }: PurchaseCallba
       const { order, purchase: tx } = await api.orders.checkout(lines.map(({ itemId, quantity }) => ({ itemId, quantity })));
       if (BigInt(tx.value) !== cartTotalWei(lines)) throw new PriceChangedError(order);
 
+      if (tx.chainId !== publicEnv.chainId) throw new Error(WRONG_NETWORK_MESSAGE);
+
       advance(STEP.sign);
+      if (getConnection(config).chainId !== tx.chainId) await switchChain(config, { chainId: tx.chainId });
+      // The last point where nothing has been paid: if the page was left while the wallet was switching, send nothing.
+      if (signal.aborted) {
+        inFlight.current = false;
+        return;
+      }
       const { request } = await simulateContract(config, {
         account: address,
         address: tx.contract,
