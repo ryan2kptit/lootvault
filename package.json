@@ -1,0 +1,29 @@
+{
+  "name": "lootvault",
+  "private": true,
+  "description": "Multi-store NFT marketplace: NestJS microservices, MongoDB, Next.js, Solidity, AWS",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "postinstall": "npm run build -w @lootvault/shared",
+    "build:packages": "npm run build -w @lootvault/shared",
+    "test:shared": "npm test -w @lootvault/shared",
+    "test:contracts": "npm test -w @lootvault/contracts",
+    "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
+    "doctor": "node scripts/doctor.mjs",
+    "deploy:local": "npm run deploy -w @lootvault/contracts -- --network localhost && node scripts/sync-deployment-env.mjs localhost",
+    "infra:up": "docker compose up -d --build --wait",
+    "infra:down": "docker compose down",
+    "infra:reset": "docker compose down -v"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "prettier": "^3.6.2",
+    "typescript": "~5.9.3"
+  }
+}

@@ -75,7 +75,8 @@
 | `packages/shared/src/abi/lootVault1155.ts` | Generated ABI (`as const`), committed |
 | `packages/shared/src/index.ts` | Barrel export |
 | `packages/contracts/contracts/LootVault1155.sol` | The contract |
-| `packages/contracts/test/LootVault1155.test.ts` | 14 behaviour tests (node:test + viem assertions) |
+| `packages/contracts/test/LootVault1155.test.ts` | 22 behaviour tests (node:test + viem assertions) |
+| `packages/contracts/contracts/test/EtherRejecter.sol` | Test helper: a payee that refuses ETH |
 | `packages/contracts/scripts/deploy.ts` | Deploys to any network and writes `deployments/<network>.json` |
 | `packages/contracts/scripts/export-abi.mjs` | Writes the ABI into the shared package |
 
@@ -480,7 +481,7 @@ Expected: all three containers report `Healthy`. The first build of `lootvault-a
 Run: `npm run doctor`
 Expected:
 - ✔ for Node, `.env`, MongoDB, moto and Chain.
-- ✖ for `LootVault1155 deployed — CONTRACT_ADDRESS empty`. This is expected until Task 5.
+- ✖ for `LootVault1155 deployed — CONTRACT_ADDRESS empty`. This is expected until Task 6.
 - The process exits with code 1.
 
 - [ ] **Step 5: Verify chain persistence across restarts**
@@ -559,13 +560,13 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 }
 ```
 
-`packages/shared/tsconfig.json`:
+`packages/shared/tsconfig.json` (`node10` resolution on purpose: viem is `"type": "module"`, and under `node16` TypeScript refuses CommonJS files importing it, with TS1541/TS1479. `node10` is also NestJS's default, and TS 5.9 accepts it):
 ```json
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "module": "node16",
-    "moduleResolution": "node16",
+    "module": "commonjs",
+    "moduleResolution": "node10",
     "rootDir": "src",
     "outDir": "dist",
     "types": ["node"]
@@ -1360,7 +1361,240 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 5: Local deployment, ABI export and env sync
+### Task 5: Contract hardening (edition size locked at first sale, line validation, coverage gaps)
+
+> Added after the Task 4 review. Spec §4 claims a leaked platform key's damage is limited by the supply cap, but `maxSupply` is part of the signed `Line`, so the key holder chooses it. This task makes the claim true for editions that have already sold: the first sale fixes `creatorOf` and `maxSupplyOf` (first write wins). It also rejects zero-creator and zero-quantity lines, and covers the review's test gaps. Every code block here was run in a scratch copy: 22/22 passing.
+
+**Files:**
+- Modify: `packages/contracts/contracts/LootVault1155.sol`
+- Create: `packages/contracts/contracts/test/EtherRejecter.sol`
+- Test: `packages/contracts/test/LootVault1155.test.ts` (append 8 tests, extend 2 imports)
+
+**Interfaces:**
+- Consumes: Task 4's contract and test file.
+- Produces: public getter `maxSupplyOf(uint256) returns (uint256)` and error `InvalidLine(uint256 tokenId)`.
+- Behaviour: `line.maxSupply` is only read on a token's **first** sale. After that, the stored edition size is authoritative. Plan 2's catalog must reject supply edits once `sold > 0`.
+
+- [ ] **Step 1: Extend the test imports**
+
+In `packages/contracts/test/LootVault1155.test.ts`, replace:
+```ts
+import { getAddress, hashTypedData, keccak256, parseEther, toHex, type Address, type Hex } from "viem";
+```
+with:
+```ts
+import { getAddress, hashTypedData, keccak256, parseEther, toHex, zeroAddress, type Address, type Hex } from "viem";
+```
+and replace:
+```ts
+  const { viem } = await network.create();
+```
+with:
+```ts
+  const { viem, networkHelpers } = await network.create();
+```
+
+- [ ] **Step 2: Append the 8 new tests and the helper contract**
+
+Insert these tests just before the final `});` that closes `describe("LootVault1155", …)`:
+```ts
+  it("fixes the edition size at the first sale so later checkouts cannot raise it", async () => {
+    const { vault, asBuyer } = await deploy();
+    const first = await checkout({ lines: [line({ quantity: 1n, maxSupply: 2n })] });
+    await asBuyer.write.purchase([first, await sign(vault.address, first)], { value: totalOf(first) });
+    assert.equal(await vault.read.maxSupplyOf([1n]), 2n);
+
+    const inflated = await checkout({ lines: [line({ quantity: 2n, maxSupply: 100n })] });
+    await viem.assertions.revertWithCustomErrorWithArgs(
+      asBuyer.write.purchase([inflated, await sign(vault.address, inflated)], { value: totalOf(inflated) }),
+      vault,
+      "SoldOut",
+      [1n],
+    );
+  });
+
+  it("rejects zero-quantity and zero-creator lines", async () => {
+    const { vault, asBuyer } = await deploy();
+    for (const bad of [line({ quantity: 0n }), line({ creator: zeroAddress })]) {
+      const c = await checkout({ lines: [bad] });
+      await viem.assertions.revertWithCustomErrorWithArgs(
+        asBuyer.write.purchase([c, await sign(vault.address, c)], { value: totalOf(c) }),
+        vault,
+        "InvalidLine",
+        [1n],
+      );
+    }
+  });
+
+  it("sells exactly up to the cap in a transaction mined at the deadline second", async () => {
+    const { vault, asBuyer } = await deploy();
+    const c = await checkout({ lines: [line({ quantity: 5n, maxSupply: 5n })] });
+    const sig = await sign(vault.address, c);
+    await networkHelpers.time.setNextBlockTimestamp(c.deadline);
+    await asBuyer.write.purchase([c, sig], { value: totalOf(c) });
+    assert.equal(await vault.read.minted([1n]), 5n);
+  });
+
+  it("counts duplicate tokenIds in one cart cumulatively", async () => {
+    const { vault, asBuyer } = await deploy();
+    const c = await checkout({ lines: [line({ quantity: 3n }), line({ quantity: 3n })] });
+    await viem.assertions.revertWithCustomErrorWithArgs(
+      asBuyer.write.purchase([c, await sign(vault.address, c)], { value: totalOf(c) }),
+      vault,
+      "SoldOut",
+      [1n],
+    );
+  });
+
+  it("reverts PayoutFailed when a creator refuses ETH", async () => {
+    const { vault, asBuyer } = await deploy();
+    const rejecter = await viem.deployContract("EtherRejecter");
+    const c = await checkout({ lines: [line({ creator: rejecter.address })] });
+    await viem.assertions.revertWithCustomError(
+      asBuyer.write.purchase([c, await sign(vault.address, c)], { value: totalOf(c) }),
+      vault,
+      "PayoutFailed",
+    );
+  });
+
+  it("emits a TransferSingle mint per line for the indexer", async () => {
+    const { vault, asBuyer } = await deploy();
+    const c = await checkout({ lines: [line({ quantity: 2n })] });
+    const hash = await asBuyer.write.purchase([c, await sign(vault.address, c)], { value: totalOf(c) });
+    const buyerAddress = getAddress(buyer.account.address);
+    await viem.assertions.emitWithArgs(hash, vault, "TransferSingle", [buyerAddress, zeroAddress, buyerAddress, 1n, 2n]);
+  });
+
+  it("accepts checkouts signed by a rotated platform signer", async () => {
+    const { vault, asBuyer } = await deploy();
+    await vault.write.setPlatformSigner([stranger.account.address]);
+    const c = await checkout();
+    await asBuyer.write.purchase([c, await sign(vault.address, c, stranger)], { value: totalOf(c) });
+    assert.equal(await vault.read.balanceOf([buyer.account.address, 1n]), 1n);
+  });
+
+  it("floors the fee per line when the price does not divide evenly", async () => {
+    const { vault, asBuyer } = await deploy();
+    const c = await checkout({ lines: [line({ tokenId: 1n, unitPrice: 999n }), line({ tokenId: 2n, unitPrice: 999n })] });
+    const hash = await asBuyer.write.purchase([c, await sign(vault.address, c)], { value: totalOf(c) });
+    // 999 * 250 / 10_000 = 24.975 -> 24 wei fee per line, creator keeps 975 per line.
+    await viem.assertions.balancesHaveChanged(hash, [
+      { address: creatorA.account.address, amount: 2n * 975n },
+      { address: treasury.account.address, amount: 48n },
+    ]);
+    await viem.assertions.emitWithArgs(hash, vault, "Purchased", [c.orderId, getAddress(buyer.account.address), 1998n, 48n]);
+  });
+```
+
+`packages/contracts/contracts/test/EtherRejecter.sol`:
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+/// @dev Test helper: a payee that refuses ETH, used to exercise PayoutFailed.
+contract EtherRejecter {
+    receive() external payable {
+        revert("EtherRejecter: no ETH");
+    }
+}
+```
+
+- [ ] **Step 3: Run tests to verify the new behaviour tests fail**
+
+Run: `npm test -w @lootvault/contracts`
+Expected: FAIL for exactly 2 tests:
+- `fixes the edition size at the first sale…`: the second purchase does not revert, and `maxSupplyOf` is not a function.
+- `rejects zero-quantity and zero-creator lines`: no `InvalidLine` error in the ABI.
+
+The other 6 new tests pass already. They are characterization tests that fill coverage gaps.
+
+- [ ] **Step 4: Harden the contract**
+
+In `packages/contracts/contracts/LootVault1155.sol`, make four replacements.
+
+(a) Contract doc comment. Replace:
+```solidity
+///      platform authorisation, buyer/deadline binding, single-use orderId,
+///      per-token supply cap, and exact payment with fee split.
+contract LootVault1155
+```
+with:
+```solidity
+///      platform authorisation, buyer/deadline binding, single-use orderId,
+///      per-token supply cap, and exact payment with fee split.
+///      A token's creator and edition size are fixed on-chain by its first sale
+///      (first write wins), so even a leaked platform key cannot re-assign or
+///      inflate an edition that has already sold.
+contract LootVault1155
+```
+
+(b) Storage. Replace:
+```solidity
+    mapping(uint256 tokenId => uint256) public minted;
+```
+with:
+```solidity
+    mapping(uint256 tokenId => uint256) public minted;
+    mapping(uint256 tokenId => uint256) public maxSupplyOf;
+```
+
+(c) Errors. Replace:
+```solidity
+    error EmptyCheckout();
+```
+with:
+```solidity
+    error EmptyCheckout();
+    error InvalidLine(uint256 tokenId);
+```
+
+(d) Per-line checks inside `purchase`. Replace:
+```solidity
+            Line calldata line = c.lines[i];
+            address knownCreator = creatorOf[line.tokenId];
+            if (knownCreator == address(0)) {
+                creatorOf[line.tokenId] = line.creator;
+            } else if (knownCreator != line.creator) {
+                revert CreatorMismatch(line.tokenId);
+            }
+            if (minted[line.tokenId] + line.quantity > line.maxSupply) revert SoldOut(line.tokenId);
+```
+with:
+```solidity
+            Line calldata line = c.lines[i];
+            if (line.creator == address(0) || line.quantity == 0) revert InvalidLine(line.tokenId);
+            address knownCreator = creatorOf[line.tokenId];
+            if (knownCreator == address(0)) {
+                // First sale fixes the creator and the edition size for good.
+                creatorOf[line.tokenId] = line.creator;
+                maxSupplyOf[line.tokenId] = line.maxSupply;
+            } else if (knownCreator != line.creator) {
+                revert CreatorMismatch(line.tokenId);
+            }
+            if (minted[line.tokenId] + line.quantity > maxSupplyOf[line.tokenId]) revert SoldOut(line.tokenId);
+```
+
+- [ ] **Step 5: Run tests to verify they pass**
+
+Run: `npm test -w @lootvault/contracts`
+Expected: `Compiled 2 Solidity files`, 22 ✔ under `LootVault1155`, `22 passing`, no warnings.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/contracts
+git commit -m "feat(contracts): lock edition size at first sale, reject empty lines, close test gaps
+
+Constraint: spec promises the supply cap bounds damage from a leaked platform key; maxSupply was signer-chosen
+Rejected: store-level supply edits after first sale | would silently diverge from the on-chain cap
+Confidence: high
+Scope-risk: low
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
+```
+
+---
+
+### Task 6: Local deployment, ABI export and env sync
 
 **Files:**
 - Create: `packages/contracts/scripts/deploy.ts`, `packages/contracts/scripts/export-abi.mjs`
@@ -1371,7 +1605,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `packages/contracts/package.json` (scripts `build`, `deploy`), root `package.json` (script `deploy:local`)
 
 **Interfaces:**
-- Consumes: `upsertEnv` (Task 1), the contract artifact (Task 4), and root `.env` keys `DEPLOYER_KEY`, `PLATFORM_SIGNER_KEY`, `TREASURY_ADDRESS`, `METADATA_BASE_URI`.
+- Consumes: `upsertEnv` (Task 1), the contract artifact (Tasks 4–5), and root `.env` keys `DEPLOYER_KEY`, `PLATFORM_SIGNER_KEY`, `TREASURY_ADDRESS`, `METADATA_BASE_URI`.
 - Produces: `lootVault1155Abi` (`as const`) exported from `@lootvault/shared`.
 - Produces: `packages/contracts/deployments/<network>.json` with fields `{ network, chainId, address, startBlock, owner, platformSigner, treasury, baseUri, txHash, deployedAt }`.
 - Produces: root `.env` keys `CONTRACT_ADDRESS` and `START_BLOCK`, filled in by `npm run deploy:local`.
@@ -1555,7 +1789,7 @@ Expected: `All checks passed.` The contract survives the chain restart.
 - [ ] **Step 7: Run every test suite**
 
 Run: `npm run test:scripts && npm run test:shared && npm run test:contracts`
-Expected: 4 + 11 + 14 tests passing, 0 failing.
+Expected: 4 + 11 + 22 tests passing, 0 failing.
 
 - [ ] **Step 8: Commit**
 
@@ -1574,6 +1808,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ## Done criteria for Plan 1
 
 - `npm run infra:up && npm run deploy:local && npm run doctor` passes on a clean clone after `cp .env.example .env && npm install`.
-- `npm run test:scripts && npm run test:shared && npm run test:contracts` pass with 29 tests.
+- `npm run test:scripts && npm run test:shared && npm run test:contracts` pass with 37 tests.
 - Chain state, including the deployed contract, survives `docker compose restart chain`.
 - Plan 2 can import `@lootvault/shared` and get `checkoutTypedData`, `lootVault1155Abi`, `EVENT_TYPES`, `eventId`, `tokenIdFromItemId` and `metadataFileName`.

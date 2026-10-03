@@ -63,7 +63,7 @@
         order-svc ──sync HTTP (x-internal-key)──► catalog-svc /catalog/internal/*
  SNS chain-events ──► SQS catalog-q (TransferSingle) · order-q (Purchased), mỗi queue có DLQ
    ▲ publish bởi indexer (quét định kỳ) và order-svc fast-path (1 tx), cùng event ID
- Chain: Hardhat node 31337 (local) | Base Sepolia 84532 (AWS) · Contract: LootVault1155
+ Chain: anvil 31337 (local, state persisted) | Base Sepolia 84532 (AWS) · Contract: LootVault1155
 ```
 
 **Các quyết định đã chốt** (mỗi quyết định có một ADR trong `docs/adr/`):
@@ -89,7 +89,7 @@
 
 ## 4. Smart contract `LootVault1155` ("contract ngốc")
 
-Kế thừa OpenZeppelin 5: `ERC1155`, `EIP712("LootVault","1")`, `Ownable`, `Pausable`, `ReentrancyGuard`. Solidity `0.8.28`.
+Kế thừa OpenZeppelin 5: `ERC1155`, `EIP712("LootVault","1")`, `Ownable2Step` (chuyển quyền sở hữu phải qua 2 bước; `renounceOwnership` bị vô hiệu hoá, revert `RenounceDisabled`), `Pausable`, `ReentrancyGuard`. Solidity `0.8.28`.
 
 ```solidity
 struct Line     { uint256 tokenId; address creator; uint256 quantity; uint256 unitPrice; uint256 maxSupply; }
@@ -105,12 +105,14 @@ function purchase(Checkout calldata c, bytes calldata platformSig) external paya
 | 2 | Chữ ký EIP-712 trên `c` recover ra đúng `platformSigner` | `InvalidSignature` |
 | 3 | `msg.sender == c.buyer` | `WrongBuyer` |
 | 4 | `block.timestamp <= c.deadline` | `Expired` |
-| 5 | `!usedOrders[c.orderId]`, sau đó đánh dấu đã dùng | `OrderUsed` |
-| 6 | Với mỗi line: `creatorOf[tokenId]` bằng 0 (lần mint đầu, gán luôn) hoặc bằng `line.creator` | `CreatorMismatch(tokenId)` |
-| 7 | Với mỗi line: `minted[tokenId] + quantity <= maxSupply` | `SoldOut(tokenId)` |
-| 8 | `msg.value == Σ quantity × unitPrice` | `WrongPayment` |
+| 5 | `!usedOrders[c.orderId]`, sau đó đánh dấu đã dùng; checkout phải có ít nhất 1 line | `OrderUsed` / `EmptyCheckout` |
+| 6 | Với mỗi line: `creator ≠ 0` và `quantity > 0` | `InvalidLine(tokenId)` |
+| 7 | Với mỗi line: `creatorOf[tokenId]` bằng 0 (lần bán đầu: **gán `creatorOf` và `maxSupplyOf` một lần duy nhất**) hoặc bằng `line.creator` | `CreatorMismatch(tokenId)` |
+| 8 | Với mỗi line: `minted[tokenId] + quantity <= maxSupplyOf[tokenId]` (cap on-chain, không phải `line.maxSupply`) | `SoldOut(tokenId)` |
+| 9 | `msg.value == Σ quantity × unitPrice` | `WrongPayment` |
 
 **Hiệu ứng khi mua thành công:**
+- Lần bán đầu tiên của một token: emit `EditionLocked(tokenId, creator, maxSupply)` đúng 1 lần. Catalog lấy edition size từ event này, không phải gọi RPC.
 - Mỗi line: `minted += quantity`, `_mint(buyer, tokenId, quantity)` (emit `TransferSingle`).
 - Phí của line = `lineTotal × feeBps / 10000`. Creator nhận `lineTotal − phí`. Tổng phí chuyển vào `treasury`. Tiền được chuyển theo kiểu push bằng `call`; lỗi thì revert `PayoutFailed`.
 - Cuối cùng emit `Purchased(orderId, buyer, total, fee)`.
@@ -121,6 +123,7 @@ function purchase(Checkout calldata c, bytes calldata platformSig) external paya
 - `setFeeBps` (tối đa 1000, tức 10%; mặc định 250)
 - `setURI`
 - `pause` / `unpause`
+- `transferOwnership` + `acceptOwnership` (2 bước). Không có `renounceOwnership`, vì quy trình xử lý sự cố cần `pause` và xoay key.
 
 **Các quy ước khác:**
 - **`tokenId = BigInt('0x' + itemId)`**, với itemId là ObjectId của Mongo. Không cần bộ đếm, và đi ngược từ tokenId về item rất dễ.
@@ -128,7 +131,7 @@ function purchase(Checkout calldata c, bytes calldata platformSig) external paya
 
 **Trade-off đã chấp nhận:**
 - Publisher phải tin platform về giá.
-- Nếu lộ platform key: dùng `pause` để dừng, xoay key bằng `setPlatformSigner`; supply cap giới hạn thiệt hại. Ở production nên ký bằng KMS secp256k1.
+- Nếu lộ platform key: dùng `pause` để dừng, xoay key bằng `setPlatformSigner`. Vì **edition size và creator bị khoá on-chain từ lần bán đầu**, kẻ giữ key **không thể** đổi creator hay bơm thêm supply cho những NFT đã bán. Phần vẫn hở, vì giá do người ký quyết định: kẻ đó có thể (a) mint miễn phí **phần còn lại** của mọi edition, kể cả edition đã bán một phần (đúng creator, trả 0 ETH, nhưng không vượt được cap), và (b) chiếm trước những item **chưa bán bản nào** bằng creator hoặc cap giả. Cách xử lý: tạo lại item đó, sẽ có ObjectId mới nên tokenId mới. Ở production nên ký bằng KMS secp256k1. (Phát hiện này đến từ review Task 4 của Plan 1.)
 - Checkout đã ký vẫn còn hiệu lực tối đa 5 phút, và chỉ với đúng buyer và đúng orderId trong đó. Unpublish hay đổi giá có hiệu lực ngay cho các checkout mới.
 
 ## 5. Services
@@ -175,7 +178,7 @@ function purchase(Checkout calldata c, bytes calldata platformSig) external paya
 | | `GET /catalog/stores` · `GET /catalog/stores/:slug` | Public |
 | | `GET /catalog/stores/me` (JWT) | Store của tôi, hoặc `404 STORE_NOT_FOUND` |
 | Studio | `POST /catalog/items` (JWT, owner) | Tạo DRAFT `{name, description, imageUrl, supply(1..10000), priceWei}` |
-| | `PATCH /catalog/items/:id` (JWT, owner) | Sửa tên, mô tả, ảnh, giá, supply (phải ≥ sold) |
+| | `PATCH /catalog/items/:id` (JWT, owner) | Sửa tên, mô tả, ảnh, giá. **Chỉ sửa được supply khi `sold == 0`**, vì contract khoá edition size từ lần bán đầu. Nếu `sold > 0` thì trả `409 SUPPLY_LOCKED` |
 | | `POST /catalog/items/:id/publish` (JWT, owner) | Ghi metadata JSON lên S3 `metadata/{64hex}.json` gồm `{name, description, image, external_url}`, rồi chuyển LIVE |
 | | `POST /catalog/items/:id/unpublish` (JWT, owner) | Chuyển HIDDEN |
 | | `GET /catalog/me/items` (JWT) | Mọi item của store tôi, đủ mọi status |
@@ -273,7 +276,7 @@ Route tĩnh (`/me`, `/store/me`, `/recent-sales`) phải được khai báo **tr
 - UI dùng chung: `NftCard`, `PriceTag`, `TxStatusStepper`, `WalletButton`.
 
 **Ví:**
-- **Demo wallet:** dùng connector `mock` của wagmi trỏ vào các tài khoản có sẵn của Hardhat node; node tự ký hộ. Có dropdown chọn vai: "Publisher A / Publisher B / Buyer 1–3".
+- **Demo wallet:** dùng connector `mock` của wagmi trỏ vào các tài khoản có sẵn của anvil; node tự ký hộ. Có dropdown chọn vai: "Publisher A / Publisher B / Buyer 1–3".
   - Chỉ bật khi `NEXT_PUBLIC_CHAIN_ID=31337`.
 - Ví injected (MetaMask) luôn có sẵn.
 
@@ -354,7 +357,7 @@ Route tĩnh (`/me`, `/store/me`, `/recent-sales`) phải được khai báo **tr
 |---|---|
 | `npm install` | Cài toàn bộ workspace |
 | `docker compose up -d` | Chạy các container trên |
-| `npm run bootstrap` | Deploy contract. Tạo bucket (CORS, public-read cho `media/` và `metadata/`), topic, queue, DLQ, subscription kèm filter. Ghi `.env.local` (địa chỉ contract, start block, URL các queue). Chạy seed: 2 store, ~12 NFT có ảnh mẫu trong `scripts/assets/` |
+| `npm run bootstrap` | Deploy contract. Tạo bucket (CORS, public-read cho `media/` và `metadata/`), topic, queue, DLQ, subscription kèm filter. Ghi vào `.env` gốc (địa chỉ contract, start block, URL các queue). Chạy seed: 2 store, ~12 NFT có ảnh mẫu trong `scripts/assets/` |
 | `npm run dev` | `concurrently` chạy 4 service (watch) và 2 app Next, log mỗi service một màu |
 | `npm run doctor` | Kiểm tra port, container, contract, queue |
 | `npm run reset` | Xóa DB, redeploy, seed lại |
