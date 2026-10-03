@@ -10,6 +10,9 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "postinstall": "npm run build -w @lootvault/shared",
+    "build:packages": "npm run build -w @lootvault/shared",
+    "test:shared": "npm test -w @lootvault/shared",
     "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
     "doctor": "node scripts/doctor.mjs",
     "infra:up": "docker compose up -d --build --wait",
