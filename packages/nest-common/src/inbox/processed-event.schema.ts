@@ -9,7 +9,8 @@ export class ProcessedEvent {
   @Prop({ required: true })
   type: string;
 
-  @Prop({ default: () => new Date() })
+  /** TTL index: rows expire after 30 days, longer than SQS's 14-day max retention, so a redelivery can never outlive its inbox row. */
+  @Prop({ default: () => new Date(), expires: 60 * 60 * 24 * 30 })
   processedAt: Date;
 }
 

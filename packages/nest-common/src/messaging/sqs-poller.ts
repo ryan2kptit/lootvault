@@ -46,10 +46,18 @@ export class SqsPoller {
     for (const message of response.Messages ?? []) {
       try {
         await this.handle(JSON.parse(message.Body ?? "{}") as ChainEvent);
-        await this.sqs.send(new DeleteMessageCommand({ QueueUrl: this.queueUrl, ReceiptHandle: message.ReceiptHandle }));
-        handled += 1;
       } catch (error) {
         this.logger.error(`Message ${message.MessageId} failed; it will be retried: ${(error as Error).message}`, SqsPoller.name);
+        continue;
+      }
+      handled += 1;
+      try {
+        await this.sqs.send(new DeleteMessageCommand({ QueueUrl: this.queueUrl, ReceiptHandle: message.ReceiptHandle }));
+      } catch (error) {
+        this.logger.warn(
+          `Message ${message.MessageId} handled but not deleted; the inbox will drop its redelivery: ${(error as Error).message}`,
+          SqsPoller.name,
+        );
       }
     }
     return handled;

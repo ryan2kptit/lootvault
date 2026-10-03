@@ -77,4 +77,31 @@ describe("InboxService", () => {
     expect(await inbox.runOnce(event, increment)).toBe("processed");
     expect((await counters.findById("sold"))?.value).toBe(3);
   });
+
+  it("surfaces a duplicate-key error from the handler's own writes instead of reporting a duplicate", async () => {
+    const event = { id: "31337:0xabc:4", type: "chain.TransferSingle" };
+    const failure = await inbox
+      .runOnce(event, async (session) => {
+        // The handler's own unique-key collision (counter "sold" already exists), not an inbox collision.
+        await counters.create([{ _id: "sold", value: 99 }], { session });
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    expect(failure).toMatchObject({ code: 11000 });
+    expect(await processed.exists({ _id: event.id })).toBeNull();
+    expect((await counters.findById("sold"))?.value).toBe(3);
+
+    expect(await inbox.runOnce(event, increment)).toBe("processed");
+    expect((await counters.findById("sold"))?.value).toBe(4);
+  });
+
+  it("bounds the inbox with a 30-day TTL index on processedAt", async () => {
+    const indexes = await processed.collection.indexes();
+    expect(indexes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: { processedAt: 1 }, expireAfterSeconds: 60 * 60 * 24 * 30 })]),
+    );
+  });
 });
