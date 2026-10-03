@@ -21,6 +21,21 @@ describe("toErrorResponse", () => {
     expect(toErrorResponse(new NotFoundException("Cannot GET /x")).body.error).toEqual({ code: "NOT_FOUND", message: "Cannot GET /x" });
   });
 
+  it("keeps exposed 4xx errors from body-parser/http-errors as client errors", () => {
+    const tooLarge = Object.assign(new Error("request entity too large"), { status: 413, statusCode: 413, expose: true });
+    expect(toErrorResponse(tooLarge)).toEqual({
+      status: 413,
+      body: { error: { code: "PAYLOAD_TOO_LARGE", message: "request entity too large" } },
+    });
+  });
+
+  it("does not expose non-exposed or 5xx errors that carry a status", () => {
+    const opaque = { status: 500, body: { error: { code: "INTERNAL_ERROR", message: "Unexpected error" } } };
+    expect(toErrorResponse(Object.assign(new Error("secret"), { status: 503, expose: false }))).toEqual(opaque);
+    expect(toErrorResponse(Object.assign(new Error("secret"), { status: 503, expose: true }))).toEqual(opaque);
+    expect(toErrorResponse(Object.assign(new Error("secret"), { status: 400 }))).toEqual(opaque);
+  });
+
   it("hides unknown errors behind an opaque 500", () => {
     expect(toErrorResponse(new Error("db password is hunter2"))).toEqual({
       status: 500,

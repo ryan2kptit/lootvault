@@ -7,9 +7,9 @@ import type { AuthUser } from "./auth.types";
 
 type AuthedRequest = Request & { user?: AuthUser };
 
+/** The token after a (case-insensitive) bearer scheme: undefined without the scheme, "" when the token is empty. */
 function bearerToken(req: Request): string | undefined {
-  const header = req.headers.authorization;
-  return header?.startsWith("Bearer ") ? header.slice(7) : undefined;
+  return /^bearer\s+(.*)$/i.exec(req.headers.authorization ?? "")?.[1];
 }
 
 function verify(jwt: JwtService, token: string): AuthUser {
@@ -29,7 +29,7 @@ export class JwtAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
     const token = bearerToken(req);
-    if (!token) throw new AppError("UNAUTHORIZED", 401, "Missing bearer token");
+    if (token === undefined) throw new AppError("UNAUTHORIZED", 401, "Missing bearer token");
     req.user = verify(this.jwt, token);
     return true;
   }
@@ -43,7 +43,7 @@ export class OptionalJwtAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
     const token = bearerToken(req);
-    if (token) req.user = verify(this.jwt, token);
+    if (token !== undefined) req.user = verify(this.jwt, token);
     return true;
   }
 }

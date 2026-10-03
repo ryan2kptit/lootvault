@@ -35,6 +35,17 @@ export function toErrorResponse(exception: unknown): { status: number; body: Err
       body: { error: { code: CODES_BY_STATUS[status] ?? "HTTP_ERROR", message: typeof message === "string" ? message : exception.message } },
     };
   }
+  if (typeof exception === "object" && exception !== null) {
+    // body-parser / http-errors (e.g. PayloadTooLargeError) are plain Errors that carry an HTTP status.
+    const { status, statusCode, expose } = exception as { status?: unknown; statusCode?: unknown; expose?: unknown };
+    const clientStatus = typeof status === "number" ? status : statusCode;
+    if (typeof clientStatus === "number" && clientStatus >= 400 && clientStatus <= 499 && expose === true) {
+      return {
+        status: clientStatus,
+        body: { error: { code: CODES_BY_STATUS[clientStatus] ?? "HTTP_ERROR", message: (exception as Error).message } },
+      };
+    }
+  }
   return { status: 500, body: { error: { code: "INTERNAL_ERROR", message: "Unexpected error" } } };
 }
 
