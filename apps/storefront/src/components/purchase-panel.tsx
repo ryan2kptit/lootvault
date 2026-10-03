@@ -1,7 +1,7 @@
 "use client";
 
 import type { PublicItem } from "@lootvault/web-shared/api";
-import { MAX_LINE_QUANTITY, useCart } from "@lootvault/web-shared/cart";
+import { MAX_CART_LINES, MAX_LINE_QUANTITY, useCart } from "@lootvault/web-shared/cart";
 import { Button } from "@lootvault/web-shared/ui";
 import { useSession } from "@lootvault/web-shared/wallet";
 import { ShoppingCart } from "lucide-react";
@@ -14,9 +14,6 @@ import { isPurchaseLocked, usePurchase } from "@/hooks/use-purchase";
 import { PurchaseProgress } from "./purchase-progress";
 import { QuantityPicker } from "./quantity-picker";
 import { SignInToBuy } from "./sign-in-to-buy";
-
-/** order-svc accepts at most 10 different items per checkout; the cart store enforces the same limit. */
-const MAX_CART_LINES = 10;
 
 /** Quantity, "Add to cart" and "Buy now" for one item. Stock comes from the server render and refreshes after a purchase. */
 export function PurchasePanel({ item, slug }: { item: PublicItem; slug: string }) {

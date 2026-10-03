@@ -6,7 +6,7 @@ import { createJSONStorage, persist, type StateStorage } from "zustand/middlewar
 import { createStore } from "zustand/vanilla";
 
 /** order-svc accepts 1-10 different items per checkout, 1-10 copies each. */
-const MAX_CART_LINES = 10;
+export const MAX_CART_LINES = 10;
 export const MAX_LINE_QUANTITY = 10;
 
 export interface CartLine {

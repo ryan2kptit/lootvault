@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { StateStorage } from "zustand/middleware";
 
-import { cartCount, cartTotalWei, createCartStore, MAX_LINE_QUANTITY } from "./cart-store";
+import { cartCount, cartTotalWei, createCartStore, MAX_CART_LINES, MAX_LINE_QUANTITY } from "./cart-store";
 
 const drake = { itemId: "a1", name: "Ember Drake", imageUrl: "http://img/a1.png", priceWei: "10000000000000000" };
 const lynx = { itemId: "b2", name: "Shadow Lynx", imageUrl: "http://img/b2.png", priceWei: "15000000000000000" };
@@ -64,6 +64,33 @@ describe("cart store", () => {
     expect(cart.getState().lines[0].quantity).toBe(1);
     cart.getState().setQuantity("a1", 99);
     expect(cart.getState().lines[0].quantity).toBe(MAX_LINE_QUANTITY);
+  });
+
+  it("lowers a line with a negative add and removes it at zero", () => {
+    cart.getState().add(drake, 3, 10);
+    cart.getState().add(drake, -2, 10);
+    expect(cart.getState().lines.map((l) => [l.itemId, l.quantity])).toEqual([["a1", 1]]);
+    cart.getState().add(drake, -3, 10);
+    expect(cart.getState().lines).toEqual([]);
+  });
+
+  it("ignores a negative add on a line that is not in the cart", () => {
+    cart.getState().add(lynx, 1, 10);
+    cart.getState().add(drake, -2, 10);
+    expect(cart.getState().lines.map((l) => l.itemId)).toEqual(["b2"]);
+  });
+
+  it("brings a removed line back when its copies are added again", () => {
+    cart.getState().add(drake, 3, 10);
+    cart.getState().add(drake, -3, 10);
+    expect(cart.getState().lines).toEqual([]);
+    cart.getState().add(drake, 3, 10);
+    expect(cart.getState().lines.map((l) => [l.itemId, l.quantity])).toEqual([["a1", 3]]);
+  });
+
+  it("holds at most MAX_CART_LINES different items", () => {
+    for (let i = 0; i < MAX_CART_LINES + 1; i++) cart.getState().add({ ...drake, itemId: `item-${i}` }, 1, 10);
+    expect(cart.getState().lines).toHaveLength(MAX_CART_LINES);
   });
 
   it("removes and clears", () => {
