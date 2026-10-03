@@ -169,12 +169,14 @@ export function usePurchase({ cart, onPaid, onPending, onError }: PurchaseCallba
       if (tx.chainId !== publicEnv.chainId) throw new Error(WRONG_NETWORK_MESSAGE);
 
       advance(STEP.sign);
+      // Nothing has been paid until writeContract: if the page was left on the way there, send nothing.
+      const leftPage = () => {
+        if (signal.aborted) inFlight.current = false;
+        return signal.aborted;
+      };
+      if (leftPage()) return;
       if (getConnection(config).chainId !== tx.chainId) await switchChain(config, { chainId: tx.chainId });
-      // The last point where nothing has been paid: if the page was left while the wallet was switching, send nothing.
-      if (signal.aborted) {
-        inFlight.current = false;
-        return;
-      }
+      if (leftPage()) return;
       const { request } = await simulateContract(config, {
         account: address,
         address: tx.contract,
@@ -184,6 +186,7 @@ export function usePurchase({ cart, onPaid, onPending, onError }: PurchaseCallba
         value: BigInt(tx.value),
         chainId: tx.chainId,
       });
+      if (leftPage()) return;
       const txHash = await writeContract(config, request);
       sent = { orderId: order.id, txHash };
       awaitingConfirmation.current = true;
