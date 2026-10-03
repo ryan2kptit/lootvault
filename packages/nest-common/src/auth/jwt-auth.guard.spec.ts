@@ -15,6 +15,7 @@ type FakeRequest = { headers: { authorization?: string }; user?: AuthUser };
 const requestWith = (authorization?: string): FakeRequest => ({ headers: authorization === undefined ? {} : { authorization } });
 const contextFor = (req: FakeRequest) => ({ switchToHttp: () => ({ getRequest: () => req }) }) as unknown as ExecutionContext;
 const tokenFor = (sub: string, secret = SECRET) => new JwtService({ secret }).sign({ sub });
+const expiredToken = (sub: string) => jwt.sign({ sub, exp: Math.floor(Date.now() / 1000) - 60 });
 
 function unauthorized(run: () => unknown): { code: string; status: number; message: string } {
   try {
@@ -84,15 +85,32 @@ describe("OptionalJwtAuthGuard", () => {
     expect(req.user).toEqual({ address: "0xaa" });
   });
 
-  it("rejects a bearer scheme with an empty token instead of treating it as anonymous", () => {
-    expect(unauthorized(() => optionalGuard.canActivate(contextFor(requestWith("Bearer "))))).toEqual({
+  it.each([
+    ["an empty token", "Bearer "],
+    ["a malformed token", "Bearer not-a-jwt"],
+    ["a token signed with another secret", `Bearer ${tokenFor("0xAA", "another-secret-at-least-16")}`],
+    ["an expired token", `Bearer ${expiredToken("0xAA")}`],
+  ])("treats %s as anonymous instead of rejecting a public route", (_name, authorization) => {
+    const req = requestWith(authorization);
+    expect(optionalGuard.canActivate(contextFor(req))).toBe(true);
+    expect(req.user).toBeUndefined();
+  });
+});
+
+describe("expired tokens", () => {
+  it("still get 401 on a required-auth route, but are anonymous on an optional one", () => {
+    const authorization = `Bearer ${expiredToken("0xAA")}`;
+
+    const required = requestWith(authorization);
+    expect(unauthorized(() => jwtGuard.canActivate(contextFor(required)))).toEqual({
       code: "UNAUTHORIZED",
       status: 401,
       message: "Invalid or expired token",
     });
-  });
+    expect(required.user).toBeUndefined();
 
-  it("rejects an invalid token instead of treating it as anonymous", () => {
-    expect(unauthorized(() => optionalGuard.canActivate(contextFor(requestWith("Bearer not-a-jwt")))).status).toBe(401);
+    const optional = requestWith(authorization);
+    expect(optionalGuard.canActivate(contextFor(optional))).toBe(true);
+    expect(optional.user).toBeUndefined();
   });
 });

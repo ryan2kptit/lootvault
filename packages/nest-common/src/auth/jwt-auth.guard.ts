@@ -12,12 +12,13 @@ function bearerToken(req: Request): string | undefined {
   return /^bearer\s+(.*)$/i.exec(req.headers.authorization ?? "")?.[1];
 }
 
-function verify(jwt: JwtService, token: string): AuthUser {
+/** The user a token proves, or undefined when it is malformed, badly signed or expired. */
+function verifiedUser(jwt: JwtService, token: string): AuthUser | undefined {
   try {
     const payload = jwt.verify<{ sub: string }>(token);
     return { address: payload.sub.toLowerCase() as AuthUser["address"] };
   } catch {
-    throw new AppError("UNAUTHORIZED", 401, "Invalid or expired token");
+    return undefined;
   }
 }
 
@@ -30,12 +31,18 @@ export class JwtAuthGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
     const token = bearerToken(req);
     if (token === undefined) throw new AppError("UNAUTHORIZED", 401, "Missing bearer token");
-    req.user = verify(this.jwt, token);
+    const user = verifiedUser(this.jwt, token);
+    if (!user) throw new AppError("UNAUTHORIZED", 401, "Invalid or expired token");
+    req.user = user;
     return true;
   }
 }
 
-/** Like JwtAuthGuard, but anonymous requests pass (`req.user` stays undefined). */
+/**
+ * Like JwtAuthGuard, but for public routes: a missing, malformed, invalid or expired token means
+ * "no user" and the request continues (`req.user` stays undefined). A stale token left in a browser
+ * must not break pages that work without logging in.
+ */
 @Injectable()
 export class OptionalJwtAuthGuard implements CanActivate {
   constructor(private readonly jwt: JwtService) {}
@@ -43,7 +50,7 @@ export class OptionalJwtAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
     const token = bearerToken(req);
-    if (token !== undefined) req.user = verify(this.jwt, token);
+    if (token !== undefined) req.user = verifiedUser(this.jwt, token);
     return true;
   }
 }
