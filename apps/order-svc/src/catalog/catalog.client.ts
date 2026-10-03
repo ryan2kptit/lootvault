@@ -19,9 +19,9 @@ export class HttpCatalogClient implements CatalogClient {
   ) {}
 
   async getItems(ids: string[], requestId?: string): Promise<CatalogItem[]> {
-    let response: Response;
+    let body: unknown;
     try {
-      response = await fetch(`${this.baseUrl}/catalog/internal/items/batch`, {
+      const response = await fetch(`${this.baseUrl}/catalog/internal/items/batch`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -30,11 +30,15 @@ export class HttpCatalogClient implements CatalogClient {
         },
         body: JSON.stringify({ ids }),
         signal: AbortSignal.timeout(this.timeoutMs),
+        redirect: "error",
       });
+      if (!response.ok) throw unavailable();
+      body = await response.json();
     } catch {
+      // Network error, timeout, redirect, non-2xx or unparsable body: fail closed.
       throw unavailable();
     }
-    if (!response.ok) throw unavailable();
-    return (await response.json()) as CatalogItem[];
+    if (!Array.isArray(body)) throw unavailable();
+    return body as CatalogItem[];
   }
 }

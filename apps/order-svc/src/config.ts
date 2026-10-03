@@ -18,6 +18,10 @@ export const orderConfigSchema = z.object({
   CHECKOUT_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   /** Extra time after the deadline before a PENDING order expires (indexer lag). */
   EXPIRY_GRACE_SECONDS: z.coerce.number().int().nonnegative().default(120),
+  /** Open (unexpired) PENDING checkouts one buyer may hold; stops one account soft-reserving a whole supply. */
+  MAX_PENDING_ORDERS_PER_BUYER: z.coerce.number().int().min(1).default(3),
+  /** The fast-path confirm waits for as many blocks as the indexer does (head - block >= CONFIRMATIONS). */
+  CONFIRMATIONS: z.coerce.number().int().nonnegative().default(0),
   AWS_REGION: z.string().default("ap-southeast-1"),
   AWS_ENDPOINT_URL: z.string().url().optional(),
   SNS_TOPIC_ARN: z.string().default(""),

@@ -25,6 +25,8 @@ export class FakeCatalog implements CatalogClient {
 
 export class FakeChain implements ChainReader {
   readonly receipts = new Map<string, TransactionReceipt>();
+  /** Chain head; receipts are mined in block 12. */
+  head = 12n;
 
   async getReceipt(txHash: Hex) {
     return this.receipts.get(txHash.toLowerCase()) ?? null;
@@ -32,6 +34,10 @@ export class FakeChain implements ChainReader {
 
   async getBlockTimestamp() {
     return 1_700_000_000;
+  }
+
+  async getBlockNumber() {
+    return this.head;
   }
 }
 
@@ -43,12 +49,16 @@ export class FakePublisher implements EventPublisher {
   }
 }
 
-export async function createOrderTestApp(mongoUri: string, fakes: { catalog: FakeCatalog; chain: FakeChain; publisher: FakePublisher }) {
+export async function createOrderTestApp(
+  mongoUri: string,
+  fakes: { catalog: FakeCatalog; chain: FakeChain; publisher: FakePublisher },
+  envOverrides: Record<string, string> = {},
+) {
   return createTestApp(AppModule, {
     prefix: "orders",
     env: {
       MONGO_URL: mongoUri,
-      ORDER_DB: `order_test_${Date.now()}`,
+      ORDER_DB: `order_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       JWT_SECRET: "test-secret-at-least-16",
       INTERNAL_API_KEY: "internal-key-for-tests",
       CHAIN_ID: "31337",
@@ -57,6 +67,10 @@ export async function createOrderTestApp(mongoUri: string, fakes: { catalog: Fak
       PLATFORM_SIGNER_KEY: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
       SQS_POLLING: "false",
       SWEEPER_ENABLED: "false",
+      // The shared e2e buyer holds many PENDING orders; the cap and confirmations have their own tests.
+      MAX_PENDING_ORDERS_PER_BUYER: "100",
+      CONFIRMATIONS: "0",
+      ...envOverrides,
     },
     override: (builder) =>
       builder

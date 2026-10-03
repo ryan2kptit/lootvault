@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { InboxService } from "@lootvault/nest-common";
 import { type ChainEvent, EVENT_TYPES } from "@lootvault/shared";
@@ -13,6 +13,8 @@ import { Order } from "../orders/order.schema";
  */
 @Injectable()
 export class PurchasedHandler {
+  private readonly logger = new Logger(PurchasedHandler.name);
+
   constructor(
     private readonly inbox: InboxService,
     @InjectModel(Order.name) private readonly orders: Model<Order>,
@@ -21,7 +23,7 @@ export class PurchasedHandler {
   async handle(event: ChainEvent): Promise<void> {
     if (event.type !== EVENT_TYPES.Purchased) return;
     await this.inbox.runOnce(event, async (session) => {
-      await this.orders.updateOne(
+      const result = await this.orders.updateOne(
         { orderId: event.data.orderId, status: { $in: statusesThatCanBecome("PAID") } },
         {
           $set: {
@@ -33,6 +35,9 @@ export class PurchasedHandler {
         },
         { session },
       );
+      if (result.matchedCount === 0) {
+        this.logger.warn(`Purchased ${event.id} matched no open order (unknown or already final): ${event.data.orderId}`);
+      }
     });
   }
 }

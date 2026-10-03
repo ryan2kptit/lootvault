@@ -114,6 +114,26 @@ describe("order-svc", () => {
       expect(res.body.error).toMatchObject({ code: "INSUFFICIENT_STOCK", details: { itemId: ITEM_B, available: 0 } });
     });
 
+    it("caps the open checkouts one buyer can hold", async () => {
+      const capped = await createOrderTestApp(mongo.uri, { catalog, chain, publisher }, { MAX_PENDING_ORDERS_PER_BUYER: "2" });
+      try {
+        const token = bearer(capped, BUYER);
+        const place = () => request(capped.getHttpServer()).post("/orders/checkout").set("authorization", token).send({ lines: [{ itemId: ITEM_A, quantity: 1 }] });
+        await place().expect(201);
+        await place().expect(201);
+        const res = await place().expect(429);
+        expect(res.body.error).toMatchObject({ code: "TOO_MANY_PENDING_ORDERS", details: { max: 2 } });
+        // Another account is unaffected.
+        await request(capped.getHttpServer())
+          .post("/orders/checkout")
+          .set("authorization", bearer(capped, OTHER))
+          .send({ lines: [{ itemId: ITEM_A, quantity: 1 }] })
+          .expect(201);
+      } finally {
+        await capped.close();
+      }
+    });
+
     it("fails closed when the catalog is down", async () => {
       catalog.down = true;
       const res = await checkout([{ itemId: ITEM_A, quantity: 1 }]).expect(503);
@@ -153,6 +173,57 @@ describe("order-svc", () => {
       );
       const res = await http().post(`/orders/${body.order.id}/confirm`).set("authorization", asBuyer()).send({ txHash }).expect(422);
       expect(res.body.error.code).toBe("TX_MISMATCH");
+    });
+
+    it("rejects a valid transaction that paid a different order", async () => {
+      const { body: orderA } = await checkout([{ itemId: ITEM_A, quantity: 1 }]).expect(201);
+      const { body: orderB } = await checkout([{ itemId: ITEM_A, quantity: 1 }]).expect(201);
+      const paidB = mined(orderB);
+      const res = await http().post(`/orders/${orderA.order.id}/confirm`).set("authorization", asBuyer()).send({ txHash: paidB }).expect(422);
+      expect(res.body.error.code).toBe("TX_MISMATCH");
+      expect((await orders.findOne({ orderId: orderA.order.orderId }))?.status).toBe("PENDING");
+    });
+
+    it("rejects a Purchased event whose total differs from the order total", async () => {
+      const { body } = await checkout([{ itemId: ITEM_A, quantity: 1 }]).expect(201);
+      const txHash = nextTx();
+      chain.receipts.set(
+        txHash,
+        receipt(txHash, [encodeLog("Purchased", { orderId: body.order.orderId, buyer: BUYER, total: BigInt(body.order.totalWei) - 1n, fee: 0n }, 0)]),
+      );
+      const res = await http().post(`/orders/${body.order.id}/confirm`).set("authorization", asBuyer()).send({ txHash }).expect(422);
+      expect(res.body.error.code).toBe("TX_MISMATCH");
+    });
+
+    it("waits for CONFIRMATIONS blocks, then confirms and publishes", async () => {
+      const slowChain = new FakeChain();
+      const slowPublisher = new FakePublisher();
+      const deep = await createOrderTestApp(mongo.uri, { catalog, chain: slowChain, publisher: slowPublisher }, { CONFIRMATIONS: "2" });
+      try {
+        const token = bearer(deep, BUYER);
+        const server = deep.getHttpServer();
+        const { body } = await request(server).post("/orders/checkout").set("authorization", token).send({ lines: [{ itemId: ITEM_A, quantity: 1 }] }).expect(201);
+        const txHash = nextTx();
+        slowChain.receipts.set(
+          txHash,
+          receipt(txHash, [
+            encodeLog("TransferSingle", { operator: BUYER, from: ZERO, to: BUYER, id: BigInt(body.purchase.checkout.lines[0].tokenId), value: 1n }, 0),
+            encodeLog("Purchased", { orderId: body.order.orderId, buyer: BUYER, total: BigInt(body.order.totalWei), fee: 25n }, 1),
+          ]),
+        );
+        const confirm = () => request(server).post(`/orders/${body.order.id}/confirm`).set("authorization", token).send({ txHash });
+
+        slowChain.head = 13n; // receipt in block 12: one block deep, needs 2
+        expect((await confirm().expect(202)).body).toEqual({ status: "PENDING_TX" });
+        expect(slowPublisher.published).toHaveLength(0);
+
+        slowChain.head = 14n;
+        const res = await confirm().expect(200);
+        expect(res.body.order.status).toBe("PAID");
+        expect(slowPublisher.published).toHaveLength(2);
+      } finally {
+        await deep.close();
+      }
     });
 
     it("rejects failed transactions, other contracts and other buyers", async () => {

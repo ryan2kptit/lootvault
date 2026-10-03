@@ -48,6 +48,7 @@ export class OrdersService implements OnModuleInit {
 
   async checkout(buyer: string, lines: CartLineInput[], requestId?: string): Promise<CheckoutResult> {
     validateCart(lines);
+    await this.assertUnderPendingCap(buyer);
     const ids = lines.map((line) => line.itemId);
     const items = new Map((await this.catalog.getItems(ids, requestId)).map((item) => [item.id, item]));
     assertCheckoutable(lines, items, await this.pendingQuantities(ids));
@@ -117,6 +118,10 @@ export class OrdersService implements OnModuleInit {
       throw new AppError("TX_INVALID", 422, "Transaction did not succeed against the LootVault contract");
     }
 
+    // Same finality rule as the indexer: until it is deep enough, answer like "not mined yet" and publish nothing.
+    const head = await this.chain.getBlockNumber();
+    if (head - receipt.blockNumber < BigInt(this.config.CONFIRMATIONS)) return { status: "PENDING_TX" };
+
     const blockTimestamp = await this.chain.getBlockTimestamp(receipt.blockNumber);
     const events = toChainEvents(receipt.logs, {
       chainId: this.config.CHAIN_ID,
@@ -128,7 +133,9 @@ export class OrdersService implements OnModuleInit {
       (event): event is PurchasedEvent =>
         event.type === EVENT_TYPES.Purchased && event.data.orderId === order.orderId && event.data.buyer === order.buyer,
     );
-    if (!purchase) throw new AppError("TX_MISMATCH", 422, "Transaction does not pay for this order");
+    if (!purchase || BigInt(purchase.data.total) !== BigInt(order.totalWei.toString())) {
+      throw new AppError("TX_MISMATCH", 422, "Transaction does not pay for this order");
+    }
 
     await this.purchased.handle(purchase);
     try {
@@ -215,6 +222,13 @@ export class OrdersService implements OnModuleInit {
       },
     ];
     return this.orders.aggregate(pipeline);
+  }
+
+  /** Open checkouts are those the soft-stock query counts too: PENDING with an unexpired signed deadline. */
+  private async assertUnderPendingCap(buyer: string): Promise<void> {
+    const max = this.config.MAX_PENDING_ORDERS_PER_BUYER;
+    const open = await this.orders.countDocuments({ buyer, status: "PENDING", deadline: { $gt: new Date() } });
+    if (open >= max) throw new AppError("TOO_MANY_PENDING_ORDERS", 429, "Finish or let expire your open checkouts first", { max });
   }
 
   /** Copies held by unexpired PENDING orders, per item (soft reservation). */

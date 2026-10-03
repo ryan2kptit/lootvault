@@ -7,6 +7,8 @@ export interface ChainReader {
   getReceipt(txHash: Hex): Promise<TransactionReceipt | null>;
   /** Unix seconds. */
   getBlockTimestamp(blockNumber: bigint): Promise<number>;
+  /** Current chain head. */
+  getBlockNumber(): Promise<bigint>;
 }
 
 export class ViemChainReader implements ChainReader {
@@ -23,5 +25,9 @@ export class ViemChainReader implements ChainReader {
 
   async getBlockTimestamp(blockNumber: bigint): Promise<number> {
     return Number((await this.client.getBlock({ blockNumber })).timestamp);
+  }
+
+  getBlockNumber(): Promise<bigint> {
+    return this.client.getBlockNumber();
   }
 }
