@@ -9,6 +9,12 @@ import { SERVICE_ORIGIN_ENV, serviceOrigin } from "./api/service-origin";
 const PUBLIC_ENV = ["NEXT_PUBLIC_API_URL", "NEXT_PUBLIC_CHAIN_ID", "NEXT_PUBLIC_RPC_URL", "NEXT_PUBLIC_STOREFRONT_URL"];
 
 /**
+ * What a service's public API is: everything but its `internal/*` routes (service-to-service, guarded by the internal
+ * key) and its Swagger docs (`docs`, `docs-json`, …). A path that does not match is not proxied, so Next answers 404.
+ */
+const PUBLIC_PATH = ":path((?!internal(?:/|$)|docs).*)";
+
+/**
  * Next only reads .env files from the app's own directory, but the monorepo keeps one root .env.
  * Load it (variables already in the environment win), then fail fast on anything the apps need.
  */
@@ -29,7 +35,7 @@ export function lootVaultNextConfig(appDir: string): NextConfig {
     agentRules: false,
     // Browser calls go to same-origin /api/<service>/*, proxied to the service (no CORS, one public base URL).
     async rewrites() {
-      return SERVICES.map((service) => ({ source: `/api/${service}/:path*`, destination: `${serviceOrigin(service)}/${service}/:path*` }));
+      return SERVICES.map((service) => ({ source: `/api/${service}/${PUBLIC_PATH}`, destination: `${serviceOrigin(service)}/${service}/:path*` }));
     },
   };
 }
