@@ -331,7 +331,7 @@ Route tĩnh (`/me`, `/store/me`, `/recent-sales`) phải được khai báo **tr
 
 | Lớp | Công cụ | Nội dung |
 |---|---|---|
-| Contract | Hardhat 3 + viem (mocha) | Mua thành công và chia tiền đúng; giỏ nhiều line; SoldOut; Expired; WrongBuyer; replay orderId; sai chữ ký; WrongPayment; đang pause; CreatorMismatch; quyền admin |
+| Contract | Hardhat 3 + viem (node:test + `viem.assertions`) | Mua thành công và chia tiền đúng; giỏ nhiều line; SoldOut; Expired; WrongBuyer; replay orderId; sai chữ ký; WrongPayment; đang pause; CreatorMismatch; quyền admin |
 | Domain | Jest | `validateCart`, `pricing`, `order-state` (đủ bảng chuyển trạng thái), `buildCheckoutTypedData`, decode receipt |
 | Integration | Jest + mongodb-memory-server (replica set) | Inbox: cùng một event xử lý 2 lần thì `sold` chỉ tăng 1. Checkout với catalog client được mock. Nonce SIWE dùng lại bị từ chối. Cursor có điều kiện |
 | E2E demo | Script | `demo:race` (G2) và `demo:smoke` (toàn bộ luồng từ publisher tới buyer qua API và chain) |
@@ -346,7 +346,7 @@ Route tĩnh (`/me`, `/store/me`, `/recent-sales`) phải được khai báo **tr
 **`docker-compose.yml`:**
 - `mongo:7` chạy `--replSet rs0`, healthcheck tự gọi `rs.initiate`, port 27017.
 - `motoserver/moto` giả lập S3, SNS, SQS, port 4566.
-- `hardhat-node`, port 8545, chainId 31337.
+- `chain`: **anvil** (Foundry 1.5.1, image tự build từ Debian và GitHub Releases), port 8545, chainId 31337. Có `--state` nên chain giữ nguyên qua các lần restart, luôn khớp với Mongo. Không dùng `hardhat node` vì mất state khi restart. Không pull image từ ghcr.io vì máy này bị trả 403.
 
 **Lệnh:**
 
