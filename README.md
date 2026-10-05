@@ -57,7 +57,7 @@ npm run dev             # 4 services in watch mode + Studio and Storefront (keep
 In a second terminal:
 
 ```bash
-npm run seed            # 2 stores x 6 NFTs, through the public APIs
+npm run seed            # 2 stores x 6 NFTs (CC0 art shipped in the repo), through the public APIs
 npm run demo:smoke      # publish -> checkout -> pay -> confirm -> projections
 npm run demo:race       # 20 buyers race for 5 copies
 npm run doctor          # health of everything above
@@ -128,7 +128,7 @@ These are deliberate MVP trade-offs, each with a guard in place:
 
 ## Troubleshooting
 
-- **`AWS resources` fails in `npm run doctor`.** moto keeps its state in memory and loses it when its container restarts. Run `npm run bootstrap`, then `npm run seed -- --force` if you need the seed images back.
+- **`AWS resources` fails in `npm run doctor`.** moto keeps its state in memory and loses it when its container restarts. `npm run bootstrap` recreates the bucket, topic and queues, but uploaded images and metadata are gone. To get a clean demo with every image back, run `npm run infra:reset`, then `infra:up`, `bootstrap`, `dev` and `seed`. The seed artwork ships in `scripts/assets/seed`, so no network is needed.
 - **`LootVault1155 deployed` fails.** The chain volume was wiped. Run `npm run infra:reset`, then the full bootstrap again (`infra:up`, `bootstrap`, `dev`, `seed`). Running only `bootstrap` redeploys the contract on the new chain, but the indexer cursor and the Mongo projections (catalog sold counts and holdings, orders) still belong to the old chain, so the new chain would never be indexed. The indexer logs `cursor N is ahead of chain head M: the chain was reset` when it sees this.
 - **`Dead-letter queues empty` fails.** A consumer gave up on a message after 5 receives. Read the catalog or order service log for the error, fix the cause, then run `npm run dlq:redrive` to put the messages back on their queues. Handlers are idempotent (inbox), so redriving is safe.
 - **anvil's image is built locally** from Debian and GitHub Releases rather than pulled from ghcr.io, which returned 403 in some environments.

@@ -1,0 +1,87 @@
+{
+  "toadz": [
+    {
+      "file": "toad-2.png",
+      "source": "CrypToadz #2",
+      "traits": [
+        "Lasagna",
+        "Glowing Blue"
+      ]
+    },
+    {
+      "file": "toad-3.png",
+      "source": "CrypToadz #3",
+      "traits": [
+        "Gargoyle",
+        "Sad",
+        "Explorer"
+      ]
+    },
+    {
+      "file": "toad-4.png",
+      "source": "CrypToadz #4",
+      "traits": [
+        "Gorilla",
+        "Pink Bucktooth",
+        "Wizard",
+        "Vampire"
+      ]
+    },
+    {
+      "file": "toad-5.png",
+      "source": "CrypToadz #5",
+      "traits": [
+        "Pasty",
+        "Floppy Hat",
+        "Judgment"
+      ]
+    },
+    {
+      "file": "toad-6.png",
+      "source": "CrypToadz #6",
+      "traits": [
+        "Creep",
+        "Blue Smile",
+        "Blue Pigtails"
+      ]
+    },
+    {
+      "file": "toad-7.png",
+      "source": "CrypToadz #7",
+      "traits": [
+        "Creep",
+        "Croak",
+        "Vampire",
+        "Bandit",
+        "Watch",
+        "One Fly"
+      ]
+    }
+  ],
+  "nouns": [
+    {
+      "file": "noun-1.png",
+      "source": "Noun #1"
+    },
+    {
+      "file": "noun-3.png",
+      "source": "Noun #3"
+    },
+    {
+      "file": "noun-7.png",
+      "source": "Noun #7"
+    },
+    {
+      "file": "noun-12.png",
+      "source": "Noun #12"
+    },
+    {
+      "file": "noun-21.png",
+      "source": "Noun #21"
+    },
+    {
+      "file": "noun-40.png",
+      "source": "Noun #40"
+    }
+  ]
+}
