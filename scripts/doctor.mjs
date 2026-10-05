@@ -187,5 +187,15 @@ for (const [name, port] of Object.entries(services)) {
   }
 }
 
+// Web apps (ports from their `dev` scripts), informational like the services. The first dev request compiles the page.
+for (const [name, port] of Object.entries({ studio: 3000, storefront: 3100 })) {
+  try {
+    const response = await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(15_000) });
+    console.log(`${response.ok ? "✔" : "○"} ${name} on http://localhost:${port}${response.ok ? "" : ` — HTTP ${response.status}`}`);
+  } catch {
+    console.log(`○ ${name} on http://localhost:${port} — not running (start everything with \`npm run dev\`)`);
+  }
+}
+
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

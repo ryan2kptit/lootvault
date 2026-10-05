@@ -8,3 +8,6 @@ packages/contracts/artifacts/
 packages/contracts/cache/
 packages/contracts/deployments/localhost.json
 .omc/
+.next/
+next-env.d.ts
+*.tsbuildinfo
