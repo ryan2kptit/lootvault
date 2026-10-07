@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from "@nestjs/swagger";
 import { PageQueryDto } from "@lootvault/nest-common";
 import { Transform, Type } from "class-transformer";
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUrl, Length, Matches, Max, MaxLength, Min } from "class-validator";
+import { IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUrl, Length, Matches, Max, MaxLength, Min } from "class-validator";
+import * as itemSchema from "./item.schema";
 
 const WEI = /^[1-9]\d{0,29}$/;
 const WEI_MESSAGE = "must be a positive integer amount of wei, as a decimal string";
@@ -29,9 +30,14 @@ export class CreateItemDto {
   @Max(10000)
   supply: number;
 
-  @ApiProperty({ example: "10000000000000000", description: "Price per copy in wei" })
+  @ApiPropertyOptional({ enum: itemSchema.ITEM_RARITIES, default: "COMMON" })
   @Matches(WEI, { message: `priceWei ${WEI_MESSAGE}` })
   priceWei: string;
+
+  @ApiProperty({ example: "LEGENDARY", description: "LEGENDARY/COMMON"})
+  @IsOptional()
+  @IsIn(itemSchema.ITEM_RARITIES)
+  rarity?: itemSchema.ItemRarity;
 }
 
 export class UpdateItemDto extends PartialType(CreateItemDto) {}
@@ -66,4 +72,9 @@ export class StorefrontQueryDto extends PageQueryDto {
   @IsOptional()
   @IsIn(STOREFRONT_SORTS)
   sort: StorefrontSort = "newest";
+
+  @ApiProperty({ example: "LEGENDARY", description: "LEGENDARY/COMMON"})
+  @IsOptional()
+  @IsIn(itemSchema.ITEM_RARITIES)
+  rarity?: string;
 }

@@ -183,6 +183,24 @@ describe("catalog-svc HTTP API", () => {
     });
   });
 
+  describe("rarity", () => {
+    it("stores rarity, filters by it and publishes it as a trait", async () => {
+      const dragon = await createItem({name: "Rarity Dragon", rarity: "LEGENDARY"});
+      const slime = await createItem({ name: "Rarity Slime" }); 
+      expect(slime.rarity).toBe("COMMON");
+
+      // TODO: publish cả hai (xem cách test ở dòng 84)
+    // TODO: GET /catalog/stores/pixel-legends/items?rarity=LEGENDARY → chỉ còn "Rarity Dragon"
+    // TODO: media.documents.get(metadataKey(BigInt(dragon.tokenId))) có attributes chứa
+    //       { trait_type: "Rarity", value: "LEGENDARY" }
+    })
+
+    it("rejects an unknown rarity", async () => {
+      // TODO: POST /catalog/items với rarity "MYTHIC" → 400
+    // TODO: GET ...items?rarity=MYTHIC → 400
+    })
+  });
+
   describe("uploads and internal API", () => {
     it("presigns only image content types", async () => {
       await http().post("/catalog/uploads/presign").set("authorization", asAlice()).send({ contentType: "image/png" }).expect(201);

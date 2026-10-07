@@ -4,6 +4,8 @@ import { type HydratedDocument, Types } from "mongoose";
 export const ITEM_STATUSES = ["DRAFT", "LIVE", "HIDDEN"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
+export const ITEM_RARITIES = ["COMMON", "RARE", "EPIC", "LEGENDARY"] as const;
+export type ItemRarity = (typeof ITEM_RARITIES) [number];
 @Schema({ collection: "items", versionKey: false, timestamps: true })
 export class Item {
   @Prop({ type: Types.ObjectId, required: true })
@@ -43,6 +45,9 @@ export class Item {
   @Prop({ type: String, enum: ITEM_STATUSES, default: "DRAFT" })
   status: ItemStatus;
 
+  @Prop({ type: String, enum: ITEM_RARITIES, default: "COMMON"})
+  rarity: ItemRarity;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -67,6 +72,7 @@ export interface ItemView {
   /** Decimal string, wei. */
   priceWei: string;
   status: ItemStatus;
+  rarity: ItemRarity;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -85,6 +91,7 @@ export function toItemView(item: ItemDocument): ItemView {
     remaining: Math.max(item.supply - item.sold, 0),
     priceWei: item.priceWei.toString(),
     status: item.status,
+    rarity: item.rarity,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
