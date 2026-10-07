@@ -5,7 +5,8 @@ export const ITEM_STATUSES = ["DRAFT", "LIVE", "HIDDEN"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
 export const ITEM_RARITIES = ["COMMON", "RARE", "EPIC", "LEGENDARY"] as const;
-export type ItemRarity = (typeof ITEM_RARITIES) [number];
+export type ItemRarity = (typeof ITEM_RARITIES)[number];
+
 @Schema({ collection: "items", versionKey: false, timestamps: true })
 export class Item {
   @Prop({ type: Types.ObjectId, required: true })
@@ -45,7 +46,8 @@ export class Item {
   @Prop({ type: String, enum: ITEM_STATUSES, default: "DRAFT" })
   status: ItemStatus;
 
-  @Prop({ type: String, enum: ITEM_RARITIES, default: "COMMON"})
+  /** Items created before rarity existed have no field in Mongo; they read as COMMON (see listStorefront). */
+  @Prop({ type: String, enum: ITEM_RARITIES, default: "COMMON" })
   rarity: ItemRarity;
 
   createdAt: Date;

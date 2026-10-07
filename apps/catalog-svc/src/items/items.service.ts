@@ -63,7 +63,7 @@ export class ItemsService implements OnModuleInit {
       imageUrl: dto.imageUrl,
       supply: dto.supply,
       priceWei: Types.Decimal128.fromString(dto.priceWei),
-      rarity: dto.rarity
+      rarity: dto.rarity,
     });
     return toItemView(item);
   }
@@ -83,10 +83,8 @@ export class ItemsService implements OnModuleInit {
     if (dto.supply !== undefined) item.supply = dto.supply;
     if (dto.priceWei !== undefined) item.priceWei = Types.Decimal128.fromString(dto.priceWei);
     if (dto.rarity !== undefined) item.rarity = dto.rarity;
-
     // Metadata first, like publish(): if the S3 put fails nothing is persisted, so a retry still sees the change.
     if (item.status === "LIVE" && metadataChanged) await this.writeMetadata(item);
-
     await item.save();
     return toItemView(item);
   }
@@ -131,8 +129,8 @@ export class ItemsService implements OnModuleInit {
       };
     }
     if (query.inStock) filter.$expr = { $lt: ["$sold", "$supply"] };
-    if (query.rarity) filter.rarity = query.rarity;
-
+    // Items created before rarity existed have no field in Mongo: a missing field (null) counts as COMMON.
+    if (query.rarity) filter.rarity = query.rarity === "COMMON" ? { $in: ["COMMON", null] } : query.rarity;
     return paginate(
       query,
       async (skip, limit) => (await this.items.find(filter).sort(SORTS[query.sort]).skip(skip).limit(limit)).map(toItemView),
@@ -193,7 +191,6 @@ export class ItemsService implements OnModuleInit {
       image: item.imageUrl,
       external_url: `${this.config.STOREFRONT_URL}/s/${store.slug}/items/${item._id.toHexString()}`,
       attributes: [{ trait_type: "Store", value: store.name }, { trait_type: "Rarity", value: item.rarity }],
-      rarity: item.rarity
     });
   }
 }

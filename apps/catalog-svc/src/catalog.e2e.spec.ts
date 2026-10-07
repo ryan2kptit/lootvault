@@ -30,6 +30,8 @@ describe("catalog-svc HTTP API", () => {
     await mongo.stop();
   });
 
+  const names = (res: request.Response) => res.body.items.map((i: { name: string }) => i.name);
+
   async function createItem(fields: Record<string, unknown>) {
     const res = await http()
       .post("/catalog/items")
@@ -158,8 +160,6 @@ describe("catalog-svc HTTP API", () => {
       await titan!.updateOne({ $set: { sold: 2 } });
     });
 
-    const names = (res: request.Response) => res.body.items.map((i: { name: string }) => i.name);
-
     it("searches by text and sorts by price", async () => {
       const res = await http().get("/catalog/stores/pixel-legends/items").query({ q: "storm", sort: "price_asc" }).expect(200);
       expect(names(res)).toEqual(["Storm Titan", "Storm Kraken"]);
@@ -184,21 +184,47 @@ describe("catalog-svc HTTP API", () => {
   });
 
   describe("rarity", () => {
-    it("stores rarity, filters by it and publishes it as a trait", async () => {
-      const dragon = await createItem({name: "Rarity Dragon", rarity: "LEGENDARY"});
-      const slime = await createItem({ name: "Rarity Slime" }); 
+    const itemsModel = () => app.get<Model<Item>>(getModelToken(Item.name));
+    const metadataOf = (item: { tokenId: string }) => media.documents.get(metadataKey(BigInt(item.tokenId))) as { attributes: unknown[] };
+    const search = (query: Record<string, string>) => http().get("/catalog/stores/pixel-legends/items").query({ q: "rarity", ...query });
+    let dragon: { id: string; tokenId: string };
+    let slime: { id: string; tokenId: string; rarity: string };
+
+    beforeAll(async () => {
+      dragon = await createItem({ name: "Rarity Dragon", rarity: "LEGENDARY" });
+      slime = await createItem({ name: "Rarity Slime" });
+      for (const item of [dragon, slime]) await http().post(`/catalog/items/${item.id}/publish`).set("authorization", asAlice()).expect(200);
+    });
+
+    it("defaults to COMMON, filters by rarity and publishes it as a metadata trait", async () => {
       expect(slime.rarity).toBe("COMMON");
+      expect(names(await search({ rarity: "LEGENDARY" }).expect(200))).toEqual(["Rarity Dragon"]);
+      expect(metadataOf(dragon).attributes).toContainEqual({ trait_type: "Rarity", value: "LEGENDARY" });
+    });
 
-      // TODO: publish cả hai (xem cách test ở dòng 84)
-    // TODO: GET /catalog/stores/pixel-legends/items?rarity=LEGENDARY → chỉ còn "Rarity Dragon"
-    // TODO: media.documents.get(metadataKey(BigInt(dragon.tokenId))) có attributes chứa
-    //       { trait_type: "Rarity", value: "LEGENDARY" }
-    })
+    it("rewrites the metadata when a LIVE item's rarity changes", async () => {
+      const res = await http().patch(`/catalog/items/${slime.id}`).set("authorization", asAlice()).send({ rarity: "EPIC" }).expect(200);
+      expect(res.body.rarity).toBe("EPIC");
+      expect(metadataOf(slime).attributes).toContainEqual({ trait_type: "Rarity", value: "EPIC" });
+      expect(names(await search({ rarity: "EPIC" }).expect(200))).toEqual(["Rarity Slime"]);
+    });
 
-    it("rejects an unknown rarity", async () => {
-      // TODO: POST /catalog/items với rarity "MYTHIC" → 400
-    // TODO: GET ...items?rarity=MYTHIC → 400
-    })
+    it("treats items created before rarity existed as COMMON", async () => {
+      await itemsModel().updateOne({ _id: slime.id }, { $unset: { rarity: 1 } });
+      expect(names(await search({ rarity: "COMMON" }).expect(200))).toEqual(["Rarity Slime"]);
+      const detail = await http().get(`/catalog/items/${slime.id}`).expect(200);
+      expect(detail.body.rarity).toBe("COMMON");
+    });
+
+    it("rejects an unknown rarity and operator injection", async () => {
+      await http()
+        .post("/catalog/items")
+        .set("authorization", asAlice())
+        .send({ name: "Card", imageUrl: "http://media.test/media/a.png", supply: 5, priceWei: (ETH / 100n).toString(), rarity: "MYTHIC" })
+        .expect(400);
+      await search({ rarity: "MYTHIC" }).expect(400);
+      await http().get("/catalog/stores/pixel-legends/items?rarity[$ne]=COMMON").expect(400);
+    });
   });
 
   describe("uploads and internal API", () => {
